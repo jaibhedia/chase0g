@@ -43,6 +43,14 @@ export interface AgentIntent {
   taunt?: string;
 }
 
+/** One blip on the minimap. Fed from the scene at ~12Hz (throttled). */
+export interface MinimapDot {
+  x: number;
+  y: number;
+  color: string;
+  kind: 'self' | 'agent' | 'human' | 'egg';
+}
+
 export interface Player {
   id: string;
   x: number;
@@ -123,6 +131,8 @@ interface GameState {
   /** Live 0G Compute status for the HUD pill. `live` = brains are 0G-driven this
    *  tick; `source` distinguishes real inference vs cached vs scripted fallback. */
   ogStatus: { live: boolean; source: 'og' | 'cache' | 'fallback' };
+  /** Throttled snapshot of world positions for the minimap (world dims + blips). */
+  minimap: { w: number; h: number; dots: MinimapDot[] };
 
   setUserId: (id: string | null) => void;
   initUserId: () => string;
@@ -142,6 +152,7 @@ interface GameState {
   setMultiplayerHiddenFill: (value: boolean) => void;
   setPaused: (value: boolean) => void;
   setOgStatus: (status: { live: boolean; source: 'og' | 'cache' | 'fallback' }) => void;
+  setMinimap: (minimap: { w: number; h: number; dots: MinimapDot[] }) => void;
   setEgg: (ownerId: string | null, position: { x: number; y: number } | null) => void;
   setLastEggHolderId: (id: string | null) => void;
   lockCharacter: (characterId: string) => void;
@@ -171,6 +182,7 @@ const initialState = {
   multiplayerHiddenFill: false,
   paused: false,
   ogStatus: { live: false, source: 'fallback' as const },
+  minimap: { w: 0, h: 0, dots: [] as MinimapDot[] },
 };
 
 export const useGameStore = create<GameState>((set, get) => ({
@@ -209,6 +221,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   setMultiplayerHiddenFill: (value) => set({ multiplayerHiddenFill: value }),
   setPaused: (value) => set({ paused: value }),
   setOgStatus: (status) => set({ ogStatus: status }),
+  setMinimap: (minimap) => set({ minimap }),
   setEgg: (ownerId, position) => set({ eggOwnerId: ownerId, eggPosition: position }),
   setLastEggHolderId: (id) => set({ lastEggHolderId: id }),
   lockCharacter: (characterId) =>

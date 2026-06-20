@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useGameStore } from '@/store/gameStore';
 import { audioManager } from '@/utils/audioManager';
 import { PowerUpHudCluster } from '@/components/PowerUpHudCluster';
+import { Minimap } from '@/components/Minimap';
 
 function formatMatchTime(seconds: number) {
   const s = Math.max(0, Math.floor(seconds));
@@ -241,6 +242,8 @@ export default function GameHUD() {
           </div>
         </div>
       )}
+
+      {!isMobile && <Minimap />}
 
       {!isMobile && players.length > 0 && (
         <div className="pointer-events-auto fixed bottom-6 left-6 z-[56]">

@@ -1,5 +1,5 @@
 import * as Phaser from 'phaser';
-import { useGameStore, Player, GameObject, AgentIntent } from '@/store/gameStore';
+import { useGameStore, Player, GameObject, AgentIntent, MinimapDot } from '@/store/gameStore';
 import { characters } from '@/data/characters';
 import { audioManager } from '@/utils/audioManager';
 import { PLAYER_SIZE, TAG_DISTANCE, TAG_COOLDOWN, GAME_DURATION, checkCollision, createMapObjects, findSafeSpawnPosition } from './gameShared';
@@ -135,6 +135,8 @@ export class GameScene extends Phaser.Scene {
   /** Last-known 0G Compute status (pushed to the store for the HUD pill). */
   private ogEnabled = false;
   private ogSource: 'og' | 'cache' | 'fallback' = 'fallback';
+  /** Throttle for pushing minimap blips to the store (~12Hz). */
+  private lastMinimap = 0;
 
   private gsPlayers: Player[] = [];
   private gsObjects: GameObject[] = [];
@@ -466,6 +468,7 @@ export class GameScene extends Phaser.Scene {
     // Self-gates on the presence of local bots, so it runs in single-player and
     // hidden-fill but is a no-op in true online MP (which has no bots).
     this.updateAgentBrains(_time);
+    this.updateMinimap(_time);
 
     // The in-game menu freezes the simulation; sprites below still render so the
     // frozen world stays visible behind the overlay.
@@ -1870,6 +1873,26 @@ export class GameScene extends Phaser.Scene {
         })),
       });
     }
+  }
+
+  /** Push a throttled snapshot of world positions to the store for the minimap.
+   *  ~12Hz keeps the blips smooth without flooding React with re-renders. */
+  private updateMinimap(now: number) {
+    if (now - this.lastMinimap < 80) return;
+    this.lastMinimap = now;
+    const personaColor: Record<string, string> = {
+      aggressive: '#f87171', sneaky: '#a78bfa', cocky: '#fb923c', cautious: '#5fcde4',
+    };
+    const dots: MinimapDot[] = this.gsPlayers.map((p) => ({
+      x: p.x,
+      y: p.y,
+      // Egg carrier = gold; you = green; agents = persona-tinted; other humans = white.
+      color: p.hasEgg ? '#facc15' : p.id === 'player' ? '#4ade80' : p.isBot ? (personaColor[p.persona ?? ''] ?? '#fbbf24') : '#ffffff',
+      kind: p.id === 'player' ? 'self' : p.isBot ? 'agent' : 'human',
+    }));
+    const egg = useGameStore.getState().eggPosition;
+    if (egg) dots.push({ x: egg.x, y: egg.y, color: '#facc15', kind: 'egg' });
+    useGameStore.getState().setMinimap({ w: this.mapWidth, h: this.mapHeight, dots });
   }
 
   private updateBots(dt: number) {
