@@ -1,0 +1,20 @@
+# Render Blueprint for the Chase Socket.IO server.
+# Deploy: Render Dashboard → New → Blueprint → point at this repo.
+services:
+  - type: web
+    name: chase-dinosaurs
+    runtime: node
+    plan: free
+    rootDir: server
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      # Render injects PORT automatically and the server reads process.env.PORT —
+      # do NOT hardcode it here or the health check can't reach the service.
+      #
+      # Comma-separated allowed browser origins (your deployed site URL),
+      # e.g. https://chase.abstractstudio.in — leave unset to allow any origin.
+      - key: CORS_ORIGIN
+        sync: false

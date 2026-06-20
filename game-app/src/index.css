@@ -1,0 +1,63 @@
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  box-sizing: border-box;
+  border-radius: 0 !important;
+  image-rendering: pixelated;
+}
+
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  font-family: "VT323", monospace;
+}
+
+:root {
+  --wood-bg: #804d2e;
+  --wood-light: #b3734a;
+  --wood-dark: #4d2813;
+  --wood-ink: #261309;
+  --wood-text: #f4e7c3;
+}
+
+/* 16-bit Adventure pixel chrome for the in-game HUD (matches the Next shell). */
+.px-heading { font-family: "Press Start 2P", monospace; letter-spacing: 0.04em; }
+.px-body { font-family: "VT323", monospace; }
+
+.px-panel {
+  background: var(--wood-bg);
+  border: 4px solid var(--wood-ink);
+  color: var(--wood-text);
+  box-shadow: inset 4px 4px 0 0 var(--wood-light), inset -4px -4px 0 0 var(--wood-dark);
+}
+.px-chip {
+  background: var(--wood-bg);
+  border: 3px solid var(--wood-ink);
+  color: var(--wood-text);
+  box-shadow: inset 3px 3px 0 0 var(--wood-light), inset -3px -3px 0 0 var(--wood-dark);
+}
+.px-shadow { text-shadow: 3px 3px 0 #11111c; }
+
+/* Subtle CRT scanlines over the game (lighter than the menus to keep play clear). */
+.scanlines {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(0,0,0,0.14) 0px,
+    rgba(0,0,0,0.14) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  mix-blend-mode: multiply;
+  opacity: 0.4;
+}
+@media (prefers-reduced-motion: reduce) { .scanlines { opacity: 0.25; } }
