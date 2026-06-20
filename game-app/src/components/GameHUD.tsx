@@ -98,6 +98,13 @@ export default function GameHUD() {
               </span>
             </div>
 
+            {/* Controls hint (desktop) — left header, before the AI·0G pill. */}
+            {!isMobile && (
+              <div className="pointer-events-none flex items-center gap-3 px-chip px-3 py-2">
+                <p className="px-heading text-[9px] tracking-wider text-[#f4e7c3]">WASD/ARROWS</p>
+              </div>
+            )}
+
             {/* 0G Compute status — the criterion #01 proof, on screen. Green = agent
                 brains are running live on 0G; red = scripted fallback (0G offline). */}
             <div className="pointer-events-none flex items-center gap-1.5 px-chip px-2 py-1 sm:gap-2 sm:px-3 sm:py-2">
@@ -127,13 +134,8 @@ export default function GameHUD() {
             </div>
           </div>
 
-          {/* Right side: WASD hint (desktop) then the bigger menu button. */}
-          <div className="pointer-events-auto flex items-center gap-2">
-            {!isMobile && (
-              <div className="flex items-center gap-3 px-chip px-3 py-2">
-                <p className="px-heading text-[9px] tracking-wider text-[#f4e7c3]">WASD/ARROWS</p>
-              </div>
-            )}
+          {/* Right side: only the bigger menu button. */}
+          <div className="pointer-events-auto flex items-center">
             <button
               type="button"
               onClick={() => setPaused(true)}
@@ -150,7 +152,7 @@ export default function GameHUD() {
           (no world-space overlap) showing each agent's current 0G-chosen tactic +
           latest taunt. Greys to "scripted" when 0G is offline. */}
       {!isMobile && agents.length > 0 && (
-        <div className="pointer-events-none fixed right-3 top-1/2 -translate-y-1/2 z-[55] w-[190px] px-panel px-3 py-2">
+        <div className="pointer-events-none fixed bottom-6 left-6 z-[55] w-[190px] px-panel px-3 py-2">
           <div className="mb-1.5 flex items-center gap-1.5">
             <span
               className="inline-block h-2 w-2 rounded-full"
