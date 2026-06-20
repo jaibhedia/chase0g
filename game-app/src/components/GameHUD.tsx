@@ -13,7 +13,7 @@ function formatMatchTime(seconds: number) {
 }
 
 export default function GameHUD() {
-  const { players, userId, timeRemaining, selectedCharacter, setPaused } = useGameStore();
+  const { players, userId, timeRemaining, selectedCharacter, setPaused, ogStatus } = useGameStore();
   const [muted, setMuted] = useState(false);
   const [musicOn, setMusicOn] = useState(true);
   const [isMobile, setIsMobile] = useState(false);
@@ -94,6 +94,22 @@ export default function GameHUD() {
                   : eggOnGround
                     ? 'Grab the egg'
                     : `Chase ${eggHolder?.character.name ?? 'them'}`}
+              </span>
+            </div>
+
+            {/* 0G Compute status — the criterion #01 proof, on screen. Green = agent
+                brains are running live on 0G; red = scripted fallback (0G offline). */}
+            <div className="pointer-events-none flex items-center gap-1.5 px-chip px-2 py-1 sm:gap-2 sm:px-3 sm:py-2">
+              <span
+                className="inline-block h-2 w-2 shrink-0 rounded-full sm:h-2.5 sm:w-2.5"
+                style={{
+                  background: ogStatus.live ? '#4ade80' : '#f87171',
+                  boxShadow: ogStatus.live ? '0 0 6px #4ade80' : 'none',
+                }}
+                aria-hidden
+              />
+              <span className="px-heading text-[8px] uppercase sm:text-[9px]" style={{ color: '#f4e7c3' }}>
+                {ogStatus.live ? 'AI · 0G live' : 'AI · 0G offline'}
               </span>
             </div>
             {isMobile && (

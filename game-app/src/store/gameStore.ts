@@ -117,6 +117,9 @@ interface GameState {
   multiplayerHiddenFill: boolean;
   /** In-game menu open → freeze the simulation. */
   paused: boolean;
+  /** Live 0G Compute status for the HUD pill. `live` = brains are 0G-driven this
+   *  tick; `source` distinguishes real inference vs cached vs scripted fallback. */
+  ogStatus: { live: boolean; source: 'og' | 'cache' | 'fallback' };
 
   setUserId: (id: string | null) => void;
   initUserId: () => string;
@@ -135,6 +138,7 @@ interface GameState {
   setRoomCode: (code: string | null) => void;
   setMultiplayerHiddenFill: (value: boolean) => void;
   setPaused: (value: boolean) => void;
+  setOgStatus: (status: { live: boolean; source: 'og' | 'cache' | 'fallback' }) => void;
   setEgg: (ownerId: string | null, position: { x: number; y: number } | null) => void;
   setLastEggHolderId: (id: string | null) => void;
   lockCharacter: (characterId: string) => void;
@@ -163,6 +167,7 @@ const initialState = {
   roomCode: null,
   multiplayerHiddenFill: false,
   paused: false,
+  ogStatus: { live: false, source: 'fallback' as const },
 };
 
 export const useGameStore = create<GameState>((set, get) => ({
@@ -200,6 +205,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   setRoomCode: (code) => set({ roomCode: code }),
   setMultiplayerHiddenFill: (value) => set({ multiplayerHiddenFill: value }),
   setPaused: (value) => set({ paused: value }),
+  setOgStatus: (status) => set({ ogStatus: status }),
   setEgg: (ownerId, position) => set({ eggOwnerId: ownerId, eggPosition: position }),
   setLastEggHolderId: (id) => set({ lastEggHolderId: id }),
   lockCharacter: (characterId) =>
