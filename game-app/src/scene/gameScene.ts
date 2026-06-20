@@ -119,6 +119,13 @@ export class GameScene extends Phaser.Scene {
   private onRemoteInput?: (payload: any) => void;
   private onEggState?: (payload: any) => void;
 
+  // Window-level input handlers (bound in create, removed on shutdown). Window-level
+  // — not canvas-scoped — so movement keeps working even when a HUD button has focus.
+  private onWinKeyDown?: (e: KeyboardEvent) => void;
+  private onWinKeyUp?: (e: KeyboardEvent) => void;
+  private onWinBlur?: () => void;
+  private onWinVisibility?: () => void;
+
   // --- 0G Compute agent brains (slow tier) ---
   private agentNetBound = false;
   private lastAgentTick = 0;
@@ -408,21 +415,45 @@ export class GameScene extends Phaser.Scene {
       });
     }
 
-    if (this.input.keyboard) {
-      this.input.keyboard.on('keydown', (e: KeyboardEvent) => {
-        this.gsKeys[e.key.toLowerCase()] = true;
-        if (e.key === ' ' && this.currentPhase === 'playing') {
-          e.preventDefault();
-          const hp = this.gsPlayers.find(p => p.id === 'player');
-          if (hp && hp.powerUpReady && !hp.powerUpActive && !hp.powerUpCooldown) {
-            this.activatePowerUp(hp);
-          }
+    // Window-level key handling (not Phaser's canvas-scoped input): movement keeps
+    // working even after clicking a HUD button, and we can clear keys on focus loss
+    // so a missed keyup (Cmd+Tab on Mac, clicking away) can't leave a key "stuck"
+    // and the dino drifting.
+    const ARROWS = new Set(['arrowup', 'arrowdown', 'arrowleft', 'arrowright']);
+    this.onWinKeyDown = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      const k = e.key.toLowerCase();
+      if (ARROWS.has(k)) e.preventDefault(); // arrows would scroll the page
+      this.gsKeys[k] = true;
+      if (k === ' ' && this.currentPhase === 'playing') {
+        e.preventDefault(); // space would scroll / trigger a focused button
+        const hp = this.gsPlayers.find((p) => p.id === 'player');
+        if (hp && hp.powerUpReady && !hp.powerUpActive && !hp.powerUpCooldown) {
+          this.activatePowerUp(hp);
         }
-      });
-      this.input.keyboard.on('keyup', (e: KeyboardEvent) => {
-        this.gsKeys[e.key.toLowerCase()] = false;
-      });
-    }
+      }
+    };
+    this.onWinKeyUp = (e: KeyboardEvent) => {
+      this.gsKeys[e.key.toLowerCase()] = false;
+    };
+    // Any focus/visibility loss → drop every held key so nothing sticks.
+    this.onWinBlur = () => { this.gsKeys = {}; };
+    this.onWinVisibility = () => { if (document.hidden) this.gsKeys = {}; };
+
+    window.addEventListener('keydown', this.onWinKeyDown);
+    window.addEventListener('keyup', this.onWinKeyUp);
+    window.addEventListener('blur', this.onWinBlur);
+    document.addEventListener('visibilitychange', this.onWinVisibility);
+
+    this.events.once('shutdown', () => {
+      if (this.onWinKeyDown) window.removeEventListener('keydown', this.onWinKeyDown);
+      if (this.onWinKeyUp) window.removeEventListener('keyup', this.onWinKeyUp);
+      if (this.onWinBlur) window.removeEventListener('blur', this.onWinBlur);
+      if (this.onWinVisibility) document.removeEventListener('visibilitychange', this.onWinVisibility);
+      this.onWinKeyDown = this.onWinKeyUp = undefined;
+      this.onWinBlur = this.onWinVisibility = undefined;
+    });
   }
 
   update(_time: number, delta: number) {
@@ -2374,6 +2405,14 @@ export class GameScene extends Phaser.Scene {
     const elapsed = Date.now() - this.gameStartTime;
     const deltaMs = _dt * 1000;
     this.gsPlayers.forEach((p) => {
+      // Active-effect lifetime — dt-based, so it advances only while playing (pauses
+      // with the menu) and never gets dropped by background-tab timer throttling.
+      // This is the fix for power-ups "getting stuck" active forever.
+      if (p.powerUpActive) {
+        p.powerUpActiveMs = (p.powerUpActiveMs ?? 0) - deltaMs;
+        if (p.powerUpActiveMs <= 0) this.deactivatePowerUp(p);
+      }
+
       // Keep initial power-up lock until global unlock time.
       if (elapsed < POWER_UP_UNLOCK_TIME_MS) {
         return;
@@ -2423,6 +2462,9 @@ export class GameScene extends Phaser.Scene {
     const reloadMs = this.powerUpReloadMs();
     player.powerUpCooldown = reloadMs;
     player.powerUpCooldownMax = reloadMs;
+    // Active-effect lifetime is counted down by updatePowerUps (dt-based), so it
+    // can never get stuck on pause or background-tab setTimeout throttling.
+    player.powerUpActiveMs = pu.type === 'teleport' ? 650 : pu.duration;
     const store = useGameStore.getState();
     store.updatePlayer(player.id, {
       powerUpActive: true,
@@ -2450,7 +2492,8 @@ export class GameScene extends Phaser.Scene {
       case 'speed-boost':
         this.attachPowerAura(player.id, 0x38bdf8);
         player.speedBoostActive = true;
-        const speedTrail = this.time.addEvent({
+        // Self-terminating cosmetic trail (stops when speedBoostActive clears).
+        this.time.addEvent({
           delay: 70,
           repeat: Math.floor(pu.duration / 70),
           callback: () => {
@@ -2460,13 +2503,7 @@ export class GameScene extends Phaser.Scene {
             }
           },
         });
-        setTimeout(() => {
-          speedTrail.remove(false);
-          this.removePowerAura(player.id);
-          player.speedBoostActive = false;
-          player.powerUpActive = false;
-          store.updatePlayer(player.id, { speedBoostActive: false, powerUpActive: false });
-        }, pu.duration);
+        // Deactivation handled by updatePowerUps (dt-based) — see deactivatePowerUp.
         break;
       case 'earthquake':
         this.cameras.main.shake(pu.duration, 0.005);
@@ -2480,7 +2517,7 @@ export class GameScene extends Phaser.Scene {
             this.spawnSparkBurst(o.x, o.y, 0xf97316, 10, 80, 300);
           }
         });
-        setTimeout(() => { player.powerUpActive = false; store.updatePlayer(player.id, { powerUpActive: false }); }, pu.duration);
+        // Deactivation handled by updatePowerUps (dt-based).
         break;
       case 'teleport': {
         this.attachPowerAura(player.id, 0xa78bfa);
@@ -2516,20 +2553,19 @@ export class GameScene extends Phaser.Scene {
         const rx = target.x;
         const ry = target.y;
 
-        setTimeout(() => {
+        // The teleport jump runs on the scene clock; the active flag itself is
+        // cleared by updatePowerUps (dt-based) shortly after, like every other type.
+        this.time.delayedCall(500, () => {
           this.spawnPulse(fromX, fromY, 0xa78bfa, 20, 86, 0.5, 240);
           this.spawnSparkBurst(fromX, fromY, 0xa78bfa, 12, 90, 280);
-          
-          player.x = rx; 
-          player.y = ry; 
+
+          player.x = rx;
+          player.y = ry;
           store.updatePlayer(player.id, { x: rx, y: ry });
-          
+
           this.spawnPulse(player.x, player.y, 0xa78bfa, 18, 80, 0.5, 260);
           this.spawnSparkBurst(player.x, player.y, 0xa78bfa, 12, 92, 280);
-          this.removePowerAura(player.id);
-          player.powerUpActive = false;
-          store.updatePlayer(player.id, { powerUpActive: false });
-        }, 500);
+        });
         break;
       }
       case 'shield':
@@ -2562,15 +2598,32 @@ export class GameScene extends Phaser.Scene {
             }
           }
         });
-
-        setTimeout(() => {
-          this.removePowerAura(player.id);
-          player.isInvincible = false;
-          player.powerUpActive = false;
-          store.updatePlayer(player.id, { isInvincible: false, powerUpActive: false });
-        }, pu.duration);
+        // Deactivation (clears isInvincible → the glow above self-destroys) is handled
+        // by updatePowerUps (dt-based).
         break;
     }
+  }
+
+  /**
+   * Single idempotent power-up teardown — clears the active flag and any
+   * type-specific effect state, then syncs the store. Called from updatePowerUps
+   * when the dt-based active timer runs out, so a power-up can NEVER stay stuck
+   * (the old per-type setTimeouts could be dropped/throttled in background tabs).
+   */
+  private deactivatePowerUp(player: Player) {
+    if (!player.powerUpActive) return;
+    player.powerUpActive = false;
+    player.powerUpActiveMs = 0;
+    player.speedBoostActive = false;
+    // isInvincible is only ever set by the shield power-up, so it's safe to clear
+    // here (the shield glow's own timer self-destroys once this flag is false).
+    player.isInvincible = false;
+    this.removePowerAura(player.id);
+    useGameStore.getState().updatePlayer(player.id, {
+      powerUpActive: false,
+      speedBoostActive: false,
+      isInvincible: false,
+    });
   }
 
   private endGame() {

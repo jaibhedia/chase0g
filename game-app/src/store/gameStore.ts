@@ -64,6 +64,9 @@ export interface Player {
   powerUpReady?: boolean;
   powerUpActive?: boolean;
   powerUpCooldown?: number;
+  /** Remaining active-effect time (ms), counted down by the dt-based update loop
+   *  (NOT setTimeout) so it never gets stuck on pause or background-tab throttling. */
+  powerUpActiveMs?: number;
   /** The cooldown value (ms) at the moment of activation — lets the HUD draw an
    *  accurate reload ring even though the reload time shortens late-game. */
   powerUpCooldownMax?: number;
