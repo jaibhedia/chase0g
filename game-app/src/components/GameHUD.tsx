@@ -1,8 +1,7 @@
 import { motion } from 'framer-motion';
-import { Volume2, VolumeX, Menu, Egg, Music } from 'lucide-react';
+import { Menu, Egg } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
 import { useGameStore } from '@/store/gameStore';
-import { audioManager } from '@/utils/audioManager';
 import { PowerUpHudCluster } from '@/components/PowerUpHudCluster';
 import { Minimap } from '@/components/Minimap';
 
@@ -23,8 +22,6 @@ const MODE_COLOR: Record<string, string> = {
 
 export default function GameHUD() {
   const { players, userId, timeRemaining, selectedCharacter, setPaused, ogStatus } = useGameStore();
-  const [muted, setMuted] = useState(false);
-  const [musicOn, setMusicOn] = useState(true);
   const [isMobile, setIsMobile] = useState(false);
 
   const agents = players.filter((p) => p.isBot);
@@ -69,16 +66,6 @@ export default function GameHUD() {
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
-
-  const handleToggleMute = () => {
-    audioManager.toggleMute();
-    setMuted(audioManager.isMuted);
-  };
-
-  // Start/stop the game theme (independent of the global mute).
-  const handleToggleMusic = () => {
-    setMusicOn(audioManager.toggleMusic());
-  };
 
   return (
     <>
@@ -127,58 +114,6 @@ export default function GameHUD() {
               </span>
             </div>
 
-            {/* Desktop controls live in the LEFT header; the right side keeps only the menu. */}
-            {!isMobile && (
-              <div className="pointer-events-auto flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleToggleMusic}
-                  className="px-chip p-2 transition-all hover:brightness-110"
-                  aria-label={musicOn ? 'Stop music' : 'Start music'}
-                >
-                  <Music className={`h-5 w-5 ${musicOn ? 'text-[#5fcde4]' : 'text-[#e8503a] opacity-60'}`} />
-                </button>
-                <button
-                  type="button"
-                  onClick={handleToggleMute}
-                  className="px-chip p-2 transition-all hover:brightness-110"
-                  aria-label={muted ? 'Unmute' : 'Mute'}
-                >
-                  {muted ? (
-                    <VolumeX className="h-5 w-5 text-[#e8503a]" />
-                  ) : (
-                    <Volume2 className="h-5 w-5 text-[#5fcde4]" />
-                  )}
-                </button>
-                <div className="flex items-center gap-3 px-chip px-3 py-2">
-                  <p className="px-heading text-[9px] tracking-wider text-[#f4e7c3]">WASD/ARROWS</p>
-                </div>
-              </div>
-            )}
-            {isMobile && (
-              <div className="pointer-events-auto flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleToggleMusic}
-                  className="px-chip p-1.5 transition-all hover:brightness-110"
-                  aria-label={musicOn ? 'Stop music' : 'Start music'}
-                >
-                  <Music className={`h-4 w-4 ${musicOn ? 'text-[#5fcde4]' : 'text-[#e8503a] opacity-60'}`} />
-                </button>
-                <button
-                  type="button"
-                  onClick={handleToggleMute}
-                  className="px-chip p-1.5 transition-all hover:brightness-110"
-                  aria-label={muted ? 'Unmute' : 'Mute'}
-                >
-                  {muted ? (
-                    <VolumeX className="h-4 w-4 text-[#e8503a]" />
-                  ) : (
-                    <Volume2 className="h-4 w-4 text-[#5fcde4]" />
-                  )}
-                </button>
-              </div>
-            )}
           </div>
 
           <div className="pointer-events-none absolute left-1/2 top-0 -translate-x-1/2">
@@ -192,8 +127,13 @@ export default function GameHUD() {
             </div>
           </div>
 
-          {/* Right side: ONLY the menu (bigger). Everything else moved to the left header. */}
-          <div className="pointer-events-auto flex items-center">
+          {/* Right side: WASD hint (desktop) then the bigger menu button. */}
+          <div className="pointer-events-auto flex items-center gap-2">
+            {!isMobile && (
+              <div className="flex items-center gap-3 px-chip px-3 py-2">
+                <p className="px-heading text-[9px] tracking-wider text-[#f4e7c3]">WASD/ARROWS</p>
+              </div>
+            )}
             <button
               type="button"
               onClick={() => setPaused(true)}
@@ -210,7 +150,7 @@ export default function GameHUD() {
           (no world-space overlap) showing each agent's current 0G-chosen tactic +
           latest taunt. Greys to "scripted" when 0G is offline. */}
       {!isMobile && agents.length > 0 && (
-        <div className="pointer-events-none fixed right-3 top-20 z-[55] w-[190px] px-panel px-3 py-2">
+        <div className="pointer-events-none fixed right-3 top-1/2 -translate-y-1/2 z-[55] w-[190px] px-panel px-3 py-2">
           <div className="mb-1.5 flex items-center gap-1.5">
             <span
               className="inline-block h-2 w-2 rounded-full"

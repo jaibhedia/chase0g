@@ -7,6 +7,7 @@ import { useGameStore } from '@/store/gameStore';
  */
 export function Minimap() {
   const minimap = useGameStore((s) => s.minimap);
+  const gameObjects = useGameStore((s) => s.gameObjects);
   if (!minimap.w || !minimap.h || minimap.dots.length === 0) return null;
 
   const W = 196;
@@ -26,7 +27,22 @@ export function Minimap() {
         style={{ imageRendering: 'pixelated', display: 'block' }}
       >
         {/* arena floor + frame */}
-        <rect x={0} y={0} width={W} height={H} fill="#16241a" />
+        <rect x={0} y={0} width={W} height={H} fill="#1d3322" />
+
+        {/* map preview — obstacles (trees/bushes/props) as darker foliage clumps */}
+        {gameObjects.map((o, i) => (
+          <rect
+            key={`o-${i}`}
+            x={o.x * sx}
+            y={o.y * sy}
+            width={Math.max(1.5, o.width * sx)}
+            height={Math.max(1.5, o.height * sy)}
+            rx={1}
+            fill="#16291a"
+            opacity={0.9}
+          />
+        ))}
+
         <rect x={0.5} y={0.5} width={W - 1} height={H - 1} fill="none" stroke="#3e5e3e" strokeWidth={1} />
 
         {minimap.dots.map((d, i) => {

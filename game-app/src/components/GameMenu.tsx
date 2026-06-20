@@ -1,6 +1,8 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { Play, RotateCcw, Users, Home } from 'lucide-react';
+import { Play, RotateCcw, Users, Home, Music, Volume2, VolumeX } from 'lucide-react';
+import { useState } from 'react';
 import { useGameStore } from '@/store/gameStore';
+import { audioManager } from '@/utils/audioManager';
 
 // '' in prod → same-origin relative paths; the Next dev server in dev.
 const LANDING = import.meta.env.VITE_LANDING_URL ?? (import.meta.env.PROD ? '' : 'http://localhost:3000');
@@ -12,6 +14,10 @@ const LANDING = import.meta.env.VITE_LANDING_URL ?? (import.meta.env.PROD ? '' :
 export default function GameMenu() {
   const paused = useGameStore((s) => s.paused);
   const setPaused = useGameStore((s) => s.setPaused);
+  const [muted, setMuted] = useState(audioManager.isMuted);
+  const [musicOn, setMusicOn] = useState(true);
+  const toggleMute = () => { audioManager.toggleMute(); setMuted(audioManager.isMuted); };
+  const toggleMusic = () => setMusicOn(audioManager.toggleMusic());
 
   const clear = (keys: string[]) => { try { keys.forEach((k) => localStorage.removeItem(k)); } catch { /* ignore */ } };
 
@@ -57,6 +63,26 @@ export default function GameMenu() {
                 <span className="px-heading text-[10px] sm:text-xs uppercase tracking-wider text-[#f4e7c3]">{label}</span>
               </button>
             ))}
+
+            {/* Sound controls live here (moved out of the in-game header). */}
+            <div className="mt-1 flex items-center gap-2">
+              <button
+                onClick={toggleMusic}
+                className="px-chip flex flex-1 items-center justify-center gap-2 px-3 py-2 sm:py-3 transition-all hover:brightness-110 active:translate-y-px"
+                aria-label={musicOn ? 'Stop music' : 'Start music'}
+              >
+                <Music className={`h-4 w-4 sm:h-5 sm:w-5 ${musicOn ? 'text-[#5fcde4]' : 'text-[#e8503a] opacity-60'}`} />
+                <span className="px-heading text-[10px] sm:text-xs uppercase tracking-wider text-[#f4e7c3]">Music</span>
+              </button>
+              <button
+                onClick={toggleMute}
+                className="px-chip flex flex-1 items-center justify-center gap-2 px-3 py-2 sm:py-3 transition-all hover:brightness-110 active:translate-y-px"
+                aria-label={muted ? 'Unmute' : 'Mute'}
+              >
+                {muted ? <VolumeX className="h-4 w-4 sm:h-5 sm:w-5 text-[#e8503a]" /> : <Volume2 className="h-4 w-4 sm:h-5 sm:w-5 text-[#5fcde4]" />}
+                <span className="px-heading text-[10px] sm:text-xs uppercase tracking-wider text-[#f4e7c3]">{muted ? 'Muted' : 'Sound'}</span>
+              </button>
+            </div>
           </motion.div>
         </motion.div>
       )}
