@@ -126,6 +126,35 @@ export default function GameHUD() {
                 {ogStatus.live ? 'AI · 0G live' : 'AI · 0G offline'}
               </span>
             </div>
+
+            {/* Desktop controls live in the LEFT header; the right side keeps only the menu. */}
+            {!isMobile && (
+              <div className="pointer-events-auto flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleToggleMusic}
+                  className="px-chip p-2 transition-all hover:brightness-110"
+                  aria-label={musicOn ? 'Stop music' : 'Start music'}
+                >
+                  <Music className={`h-5 w-5 ${musicOn ? 'text-[#5fcde4]' : 'text-[#e8503a] opacity-60'}`} />
+                </button>
+                <button
+                  type="button"
+                  onClick={handleToggleMute}
+                  className="px-chip p-2 transition-all hover:brightness-110"
+                  aria-label={muted ? 'Unmute' : 'Mute'}
+                >
+                  {muted ? (
+                    <VolumeX className="h-5 w-5 text-[#e8503a]" />
+                  ) : (
+                    <Volume2 className="h-5 w-5 text-[#5fcde4]" />
+                  )}
+                </button>
+                <div className="flex items-center gap-3 px-chip px-3 py-2">
+                  <p className="px-heading text-[9px] tracking-wider text-[#f4e7c3]">WASD/ARROWS</p>
+                </div>
+              </div>
+            )}
             {isMobile && (
               <div className="pointer-events-auto flex items-center gap-2">
                 <button
@@ -163,44 +192,16 @@ export default function GameHUD() {
             </div>
           </div>
 
-          <div className="pointer-events-auto flex max-w-[42%] flex-col items-end gap-2 sm:max-w-none sm:flex-row sm:items-center">
+          {/* Right side: ONLY the menu (bigger). Everything else moved to the left header. */}
+          <div className="pointer-events-auto flex items-center">
             <button
               type="button"
               onClick={() => setPaused(true)}
-              className="px-chip p-1.5 sm:p-3 transition-all hover:brightness-110"
+              className="px-chip p-2.5 sm:p-3.5 transition-all hover:brightness-110"
               aria-label="Open menu"
             >
-              <Menu className="h-4 w-4 sm:h-6 sm:w-6 text-[#f4e7c3]" />
+              <Menu className="h-6 w-6 sm:h-7 sm:w-7 text-[#f4e7c3]" />
             </button>
-            {!isMobile && (
-              <button
-                type="button"
-                onClick={handleToggleMusic}
-                className="px-chip p-3 transition-all hover:brightness-110"
-                aria-label={musicOn ? 'Stop music' : 'Start music'}
-              >
-                <Music className={`h-6 w-6 ${musicOn ? 'text-[#5fcde4]' : 'text-[#e8503a] opacity-60'}`} />
-              </button>
-            )}
-            {!isMobile && (
-              <button
-                type="button"
-                onClick={handleToggleMute}
-                className="px-chip p-3 transition-all hover:brightness-110"
-                aria-label={muted ? 'Unmute' : 'Mute'}
-              >
-                {muted ? (
-                  <VolumeX className="h-6 w-6 text-[#e8503a]" />
-                ) : (
-                  <Volume2 className="h-6 w-6 text-[#5fcde4]" />
-                )}
-              </button>
-            )}
-            {!isMobile && (
-              <div className="flex items-center gap-3 px-chip px-4 py-2">
-                <p className="px-heading text-[9px] tracking-wider text-[#f4e7c3]">WASD/ARROWS</p>
-              </div>
-            )}
           </div>
         </div>
       </motion.div>
@@ -221,24 +222,19 @@ export default function GameHUD() {
             />
             <span className="px-heading text-[8px] uppercase tracking-[0.2em] text-[#9fb0d8]">0G Agents</span>
           </div>
+          {/* Behavior only — the trash-talk shows as overhead bubbles in-world. */}
           <div className="flex flex-col gap-1.5">
             {agents.map((a) => {
               const mode = ogStatus.live ? a.aiIntent?.mode : undefined;
-              const fresh = ogStatus.live && a.taunt && a.tauntAt && Date.now() - a.tauntAt < 4000;
               return (
-                <div key={a.id} className="flex flex-col gap-0.5">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="px-heading truncate text-[9px] text-[#f4e7c3]">{a.character.name}</span>
-                    <span
-                      className="px-heading shrink-0 text-[8px] uppercase"
-                      style={{ color: ogStatus.live ? (mode ? MODE_COLOR[mode] ?? '#9fb0d8' : '#9fb0d8') : '#5b6b8c' }}
-                    >
-                      {ogStatus.live ? (mode ? MODE_LABEL[mode] ?? mode : '…') : 'scripted'}
-                    </span>
-                  </div>
-                  {fresh && (
-                    <span className="text-[8px] italic leading-tight text-[#c9b88a]">&ldquo;{a.taunt}&rdquo;</span>
-                  )}
+                <div key={a.id} className="flex items-center justify-between gap-2">
+                  <span className="px-heading truncate text-[9px] text-[#f4e7c3]">{a.character.name}</span>
+                  <span
+                    className="px-heading shrink-0 text-[8px] uppercase"
+                    style={{ color: ogStatus.live ? (mode ? MODE_COLOR[mode] ?? '#9fb0d8' : '#9fb0d8') : '#5b6b8c' }}
+                  >
+                    {ogStatus.live ? (mode ? MODE_LABEL[mode] ?? mode : '…') : 'scripted'}
+                  </span>
                 </div>
               );
             })}
@@ -248,7 +244,9 @@ export default function GameHUD() {
 
       {!isMobile && <Minimap />}
 
-      {!isMobile && players.length > 0 && (
+      {/* Power-up BUTTON only on touch devices (phones/tablets). On desktop you press
+          SPACE, so the on-screen button is removed there. */}
+      {isMobile && players.length > 0 && (
         <div className="pointer-events-auto fixed bottom-6 left-6 z-[56]">
           <PowerUpHudCluster
             powerUpReady={powerUpReady}

@@ -19,6 +19,8 @@ const SPRITE_SCALE = 4;
 // the local fast-tier steering reacts instantly between ticks, so the LLM only needs
 // to refresh high-level strategy/taunts occasionally.
 const AGENT_TICK_MS = 5000;
+/** How long an overhead taunt bubble stays up after it arrives. */
+const TAUNT_TTL_MS = 4000;
 /** First power-up unlocks 15s into the match (matches the base reload cadence). */
 const POWER_UP_UNLOCK_TIME_MS = 15000;
 /** Bot move speed = character.speed * mult * dt (human baseline uses 120 px/s). */
@@ -138,6 +140,8 @@ export class GameScene extends Phaser.Scene {
   private ogSource: 'og' | 'cache' | 'fallback' = 'fallback';
   /** Throttle for pushing minimap blips to the store (~12Hz). */
   private lastMinimap = 0;
+  /** Overhead taunt speech bubbles, keyed by player id (behavior stays in the HUD panel). */
+  private tauntBubbles: Record<string, Phaser.GameObjects.Text> = {};
 
   private gsPlayers: Player[] = [];
   private gsObjects: GameObject[] = [];
@@ -582,6 +586,39 @@ export class GameScene extends Phaser.Scene {
       }
     });
 
+    this.renderAgentTaunts();
+  }
+
+  /** Overhead taunt bubbles above each agent (the agent's TACTIC lives in the HUD
+   *  "0G Agents" panel; only the trash-talk is shown in-world, transiently, so it
+   *  doesn't stack into a cluttered mess). */
+  private renderAgentTaunts() {
+    if (!this.gsPlayers.some((p) => p.isBot)) return;
+    const nowT = Date.now();
+    for (const p of this.gsPlayers) {
+      if (!p.isBot) continue;
+      const fresh = !!(p.taunt && p.tauntAt && nowT - p.tauntAt < TAUNT_TTL_MS);
+      let bubble = this.tauntBubbles[p.id];
+      if (!fresh) { bubble?.setVisible(false); continue; }
+      if (!bubble) {
+        bubble = this.add
+          .text(0, 0, '', {
+            fontFamily: 'monospace', fontSize: '12px', color: '#2b2410',
+            backgroundColor: '#fde68a', padding: { x: 6, y: 3 }, align: 'center',
+            wordWrap: { width: 150 },
+          })
+          .setOrigin(0.5, 1)
+          .setDepth(100000);
+        this.tauntBubbles[p.id] = bubble;
+      }
+      const age = nowT - (p.tauntAt as number);
+      const fade = age > TAUNT_TTL_MS - 600 ? Math.max(0, (TAUNT_TTL_MS - age) / 600) : 1;
+      bubble
+        .setText(p.taunt as string)
+        .setPosition(p.x, p.y - 74) // above the nametag so they don't overlap
+        .setAlpha(fade)
+        .setVisible(true);
+    }
   }
 
   // ===================== MAP =====================
@@ -1839,6 +1876,8 @@ export class GameScene extends Phaser.Scene {
         if (this.onAgentIntents) socket.off('agent-intents', this.onAgentIntents);
         this.onAgentIntents = undefined;
         this.agentNetBound = false;
+        Object.values(this.tauntBubbles).forEach((b) => b.destroy());
+        this.tauntBubbles = {};
       });
     }
 
