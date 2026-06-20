@@ -73,14 +73,21 @@ You control only the players whose kind is "agent". For EACH agent, choose:
 - targetId: the player id this intent is about (the holder for hunt/intercept, the nearest threat for flee). Omit for roam.
 - persona: aggressive | sneaky | cocky | cautious — keep it consistent with the agent's given persona.
 - taunt: ONE short in-character trash-talk line (max 12 words), matching the persona. Vary it; reference the situation.
-Coordinate: don't send every agent at the same target the same way — mix hunt and intercept, let one guard.
+Coordinate by distance (each agent has distToHolder/distToEgg): the CLOSEST agent should hunt directly; the others intercept to cut off the escape, or guard a lane — never all dogpile the same way. Keep each agent's tactic coherent with its "previously" mode unless the situation clearly changed.
 Respond ONLY with strict JSON: {"intents":[{"agentId","mode","targetId","persona","taunt"}, ...]} with exactly one entry per agent. No prose.`;
 
-function buildUserPrompt(snap: AgentSnapshot, agents: SnapshotPlayer[]): string {
-  const holder = snap.egg.holderId;
+function buildUserPrompt(snap: AgentSnapshot, agents: SnapshotPlayer[], prev?: Intent[]): string {
+  const holderId = snap.egg.holderId;
+  const holderP = holderId ? snap.players.find((p) => p.id === holderId) : undefined;
+  const prevById = new Map((prev ?? []).map((i) => [i.agentId, i]));
+  const distTo = (a: SnapshotPlayer, b?: { x: number; y: number }) =>
+    b ? Math.round(Math.hypot(a.x - b.x, a.y - b.y)) : null;
+
   const compact = {
     map: snap.map,
-    egg: holder ? { heldBy: holder } : { loose: true, x: Math.round(snap.egg.x), y: Math.round(snap.egg.y) },
+    egg: holderId
+      ? { heldBy: holderId, holderPos: holderP ? { x: Math.round(holderP.x), y: Math.round(holderP.y) } : undefined }
+      : { loose: true, x: Math.round(snap.egg.x), y: Math.round(snap.egg.y) },
     players: snap.players.map((p) => ({
       id: p.id,
       kind: p.kind,
@@ -89,7 +96,15 @@ function buildUserPrompt(snap: AgentSnapshot, agents: SnapshotPlayer[]): string 
       hasEgg: p.hasEgg,
       ...(p.persona ? { persona: p.persona } : {}),
     })),
-    youControl: agents.map((a) => ({ agentId: a.id, persona: a.persona ?? 'aggressive' })),
+    // Per-agent context so the model can divide roles by distance and stay coherent
+    // with its last decision (rolling memory) instead of re-deciding from scratch.
+    youControl: agents.map((a) => ({
+      agentId: a.id,
+      persona: a.persona ?? 'aggressive',
+      distToHolder: holderP && holderP.id !== a.id ? distTo(a, holderP) : null,
+      distToEgg: !holderId ? distTo(a, snap.egg) : null,
+      previously: prevById.get(a.id)?.mode ?? null,
+    })),
   };
   return `Current state:\n${JSON.stringify(compact)}\n\nReturn one intent per agent in youControl.`;
 }
@@ -129,6 +144,7 @@ async function callOnce(
   og: OpenAI,
   snap: AgentSnapshot,
   agents: SnapshotPlayer[],
+  prev?: Intent[],
 ): Promise<Intent[]> {
   // NOTE: no response_format json_object — qwen2.5-omni rejects JSON mode
   // ("model_not_capable"). We instruct JSON in the prompt and parse it from text.
@@ -137,7 +153,7 @@ async function callOnce(
       model: OG_MODEL,
       messages: [
         { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: buildUserPrompt(snap, agents) },
+        { role: 'user', content: buildUserPrompt(snap, agents, prev) },
       ],
       temperature: 0.9,
       max_tokens: MAX_TOKENS,
@@ -155,6 +171,12 @@ async function callOnce(
   for (const raw of rawList) {
     const intent = sanitize(raw, agentIds, playerIds);
     if (intent) byAgent.set(intent.agentId, intent);
+  }
+  // "flee" only makes sense for the egg carrier; correct the model's occasional slip
+  // so a non-holder that should be chasing shows (and acts as) a hunter.
+  for (const a of agents) {
+    const it = byAgent.get(a.id);
+    if (it && it.mode === 'flee' && a.id !== snap.egg.holderId) it.mode = 'hunt';
   }
   // Guarantee exactly one intent per agent (fill any the model missed).
   return agents.map(
@@ -176,9 +198,12 @@ export async function decideIntents(
     return { intents: lastGood.get(snap.roomCode) ?? [], source: 'fallback' };
   }
 
+  // Feed the room's previous decision back in as rolling context so tactics stay
+  // coherent across ticks instead of each call deciding blind.
+  const prev = lastGood.get(snap.roomCode);
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const intents = await callOnce(og, snap, agents);
+      const intents = await callOnce(og, snap, agents, prev);
       lastGood.set(snap.roomCode, intents);
       return { intents, source: 'og' };
     } catch (err) {

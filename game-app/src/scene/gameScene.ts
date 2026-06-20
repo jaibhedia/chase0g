@@ -15,7 +15,7 @@ const CHAR_SPRITES: Record<string, { name: string }> = {
 const SPRITE_SCALE = 4;
 /** How often the client asks 0G Compute for fresh agent intents (slow tier). The
  *  LLM only sets strategy at this cadence; per-frame steering stays local. */
-const AGENT_TICK_MS = 3500;
+const AGENT_TICK_MS = 2500;
 /** First power-up unlocks 15s into the match (matches the base reload cadence). */
 const POWER_UP_UNLOCK_TIME_MS = 15000;
 /** Bot move speed = character.speed * mult * dt (human baseline uses 120 px/s). */
@@ -129,6 +129,8 @@ export class GameScene extends Phaser.Scene {
   // --- 0G Compute agent brains (slow tier) ---
   private agentNetBound = false;
   private lastAgentTick = 0;
+  /** Egg holder id at the last agent tick — a change triggers an immediate re-think. */
+  private lastAgentEggHolder: string | null = null;
   private onAgentIntents?: (payload: any) => void;
   /** Last-known 0G Compute status (pushed to the store for the HUD pill). */
   private ogEnabled = false;
@@ -1836,10 +1838,19 @@ export class GameScene extends Phaser.Scene {
       });
     }
 
-    if (now - this.lastAgentTick >= AGENT_TICK_MS) {
+    const store = useGameStore.getState();
+    const holder = this.gsPlayers.find((p) => p.hasEgg);
+    const holderId = holder ? holder.id : null;
+    const sinceLast = now - this.lastAgentTick;
+    // Re-think on a steady cadence, OR immediately when the egg changes hands (so the
+    // LLM strategy/taunts stay in sync with the action) — but rate-limited so a bouncy
+    // egg can't spam 0G. The local steering already reacts instantly between ticks.
+    const eggChanged = holderId !== this.lastAgentEggHolder;
+    const due = sinceLast >= AGENT_TICK_MS;
+    const eventTick = eggChanged && sinceLast >= 1200;
+    if (due || eventTick) {
       this.lastAgentTick = now;
-      const store = useGameStore.getState();
-      const holder = this.gsPlayers.find((p) => p.hasEgg);
+      this.lastAgentEggHolder = holderId;
       const eggPos = store.eggPosition;
       socket.emit('agent-tick', {
         roomCode: this.roomCode || `solo-${this.localUserId || 'anon'}`,
@@ -1884,7 +1895,6 @@ export class GameScene extends Phaser.Scene {
       // (0G offline / not yet ticked) every branch below falls through to the
       // original scripted behavior — this is the criterion #01 on/off difference.
       const intent = bot.aiIntent;
-      const playerById = (id?: string) => (id ? this.gsPlayers.find(p => p.id === id) : undefined);
 
       if (bot.hasEgg) {
         // Holding the egg ALWAYS means flee — a gameplay invariant, not the LLM's call.
@@ -1902,13 +1912,16 @@ export class GameScene extends Phaser.Scene {
           this.wander(bot, speed);
         }
       } else if (intent && (intent.mode === 'hunt' || intent.mode === 'intercept')) {
-        // 0G brain: go for a specific target (defaults to the current holder).
-        const target = playerById(intent.targetId) || eggHolder;
-        if (target && !target.isInvincible) {
+        // The LLM picks the ROLE (hunt vs intercept); the TARGET is always whoever
+        // CURRENTLY holds the egg, resolved live each frame. So a stale intent can
+        // never make an agent chase someone who already lost the egg — instant
+        // reactivity between the slower 0G strategy ticks.
+        const target = eggHolder && !eggHolder.isInvincible ? eggHolder : undefined;
+        if (target) {
           if (intent.mode === 'intercept') {
-            // Cut off the target by leading its velocity instead of chasing its tail.
+            // Predict where the target is heading and cut it off there.
             const tv = this.playerVelocity[target.id] || { vx: 0, vy: 0 };
-            this.moveTowards(bot, target.x + tv.vx * 0.45, target.y + tv.vy * 0.45, speed);
+            this.moveTowards(bot, target.x + tv.vx * 0.6, target.y + tv.vy * 0.6, speed);
           } else {
             const lead = 0.22;
             this.moveTowards(bot, target.x + (target.x - bot.x) * lead, target.y + (target.y - bot.y) * lead, speed);
