@@ -12,11 +12,21 @@ function formatMatchTime(seconds: number) {
   return `${m}:${r.toString().padStart(2, '0')}`;
 }
 
+// Readable label + color per 0G-chosen tactic, for the "0G Agents" HUD panel.
+const MODE_LABEL: Record<string, string> = {
+  hunt: 'HUNTING', intercept: 'CUTTING OFF', guard: 'GUARDING', flee: 'FLEEING', roam: 'ROAMING',
+};
+const MODE_COLOR: Record<string, string> = {
+  hunt: '#f87171', intercept: '#fb923c', guard: '#5fcde4', flee: '#facc15', roam: '#9fb0d8',
+};
+
 export default function GameHUD() {
   const { players, userId, timeRemaining, selectedCharacter, setPaused, ogStatus } = useGameStore();
   const [muted, setMuted] = useState(false);
   const [musicOn, setMusicOn] = useState(true);
   const [isMobile, setIsMobile] = useState(false);
+
+  const agents = players.filter((p) => p.isBot);
 
   const currentPlayer = players.find(
     (p) => p.userId === userId || (!p.isBot && players.length > 0)
@@ -190,6 +200,47 @@ export default function GameHUD() {
           </div>
         </div>
       </motion.div>
+
+      {/* 0G Agents panel — the live "AI reasoning" surface. One tidy fixed panel
+          (no world-space overlap) showing each agent's current 0G-chosen tactic +
+          latest taunt. Greys to "scripted" when 0G is offline. */}
+      {!isMobile && agents.length > 0 && (
+        <div className="pointer-events-none fixed right-3 top-20 z-[55] w-[190px] px-panel px-3 py-2">
+          <div className="mb-1.5 flex items-center gap-1.5">
+            <span
+              className="inline-block h-2 w-2 rounded-full"
+              style={{
+                background: ogStatus.live ? '#4ade80' : '#f87171',
+                boxShadow: ogStatus.live ? '0 0 6px #4ade80' : 'none',
+              }}
+              aria-hidden
+            />
+            <span className="px-heading text-[8px] uppercase tracking-[0.2em] text-[#9fb0d8]">0G Agents</span>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            {agents.map((a) => {
+              const mode = ogStatus.live ? a.aiIntent?.mode : undefined;
+              const fresh = ogStatus.live && a.taunt && a.tauntAt && Date.now() - a.tauntAt < 4000;
+              return (
+                <div key={a.id} className="flex flex-col gap-0.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="px-heading truncate text-[9px] text-[#f4e7c3]">{a.character.name}</span>
+                    <span
+                      className="px-heading shrink-0 text-[8px] uppercase"
+                      style={{ color: ogStatus.live ? (mode ? MODE_COLOR[mode] ?? '#9fb0d8' : '#9fb0d8') : '#5b6b8c' }}
+                    >
+                      {ogStatus.live ? (mode ? MODE_LABEL[mode] ?? mode : '…') : 'scripted'}
+                    </span>
+                  </div>
+                  {fresh && (
+                    <span className="text-[8px] italic leading-tight text-[#c9b88a]">&ldquo;{a.taunt}&rdquo;</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {!isMobile && players.length > 0 && (
         <div className="pointer-events-auto fixed bottom-6 left-6 z-[56]">

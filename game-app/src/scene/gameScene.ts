@@ -16,8 +16,6 @@ const SPRITE_SCALE = 4;
 /** How often the client asks 0G Compute for fresh agent intents (slow tier). The
  *  LLM only sets strategy at this cadence; per-frame steering stays local. */
 const AGENT_TICK_MS = 3500;
-/** How long a taunt speech bubble stays up after it arrives. */
-const TAUNT_TTL_MS = 3200;
 /** First power-up unlocks 15s into the match (matches the base reload cadence). */
 const POWER_UP_UNLOCK_TIME_MS = 15000;
 /** Bot move speed = character.speed * mult * dt (human baseline uses 120 px/s). */
@@ -128,8 +126,6 @@ export class GameScene extends Phaser.Scene {
   /** Last-known 0G Compute status (pushed to the store for the HUD pill). */
   private ogEnabled = false;
   private ogSource: 'og' | 'cache' | 'fallback' = 'fallback';
-  /** Live taunt speech bubbles, keyed by player id. */
-  private tauntBubbles: Record<string, Phaser.GameObjects.Text> = {};
 
   private gsPlayers: Player[] = [];
   private gsObjects: GameObject[] = [];
@@ -549,7 +545,6 @@ export class GameScene extends Phaser.Scene {
       }
     });
 
-    this.renderAgentUi();
   }
 
   // ===================== MAP =====================
@@ -1785,13 +1780,21 @@ export class GameScene extends Phaser.Scene {
         });
         const intents: AgentIntent[] = Array.isArray(payload.intents) ? payload.intents : [];
         const byId = new Map(intents.map((it) => [it.agentId, it]));
+        const store = useGameStore.getState();
+        const tNow = Date.now();
         for (const p of this.gsPlayers) {
           if (!p.isBot) continue;
           const it = byId.get(p.id);
           if (!it) continue;
           p.aiIntent = it;
           if (it.persona) p.persona = it.persona;
-          if (it.taunt) { p.taunt = it.taunt; p.tauntAt = this.time.now; }
+          if (it.taunt) { p.taunt = it.taunt; p.tauntAt = tNow; }
+          // Dual-write to the store so the HUD "0G Agents" panel reflects live state.
+          store.updatePlayer(p.id, {
+            aiIntent: it,
+            ...(it.persona ? { persona: it.persona } : {}),
+            ...(it.taunt ? { taunt: it.taunt, tauntAt: tNow } : {}),
+          });
         }
       };
       socket.on('agent-intents', this.onAgentIntents);
@@ -1799,8 +1802,6 @@ export class GameScene extends Phaser.Scene {
         if (this.onAgentIntents) socket.off('agent-intents', this.onAgentIntents);
         this.onAgentIntents = undefined;
         this.agentNetBound = false;
-        Object.values(this.tauntBubbles).forEach((b) => b.destroy());
-        this.tauntBubbles = {};
       });
     }
 
@@ -1826,57 +1827,6 @@ export class GameScene extends Phaser.Scene {
           ...(p.persona ? { persona: p.persona } : {}),
         })),
       });
-    }
-  }
-
-  /** Draw the live taunt bubbles above agents + the fixed "AI: 0G ●/○" status pill.
-   *  Called once per frame from the render pass. */
-  private renderAgentUi() {
-    if (!this.gsPlayers.some((p) => p.isBot)) return;
-    const nowT = this.time.now;
-
-    for (const p of this.gsPlayers) {
-      if (!p.isBot) continue;
-      // Each bot ALWAYS shows its current tactic so the per-agent 0G reasoning is
-      // legible: a fresh taunt (yellow) when one just arrived, otherwise a compact
-      // MODE tag (dark). This makes "different tactics" visible at a glance.
-      const hasTaunt = !!(p.taunt && p.tauntAt && nowT - p.tauntAt < TAUNT_TTL_MS);
-      const mode = p.aiIntent?.mode;
-      const label = hasTaunt ? (p.taunt as string) : (mode ? this.modeLabel(mode) : '');
-
-      let bubble = this.tauntBubbles[p.id];
-      if (!label) { bubble?.setVisible(false); continue; }
-      if (!bubble) {
-        bubble = this.add
-          .text(0, 0, '', {
-            fontFamily: 'monospace', fontSize: '13px', padding: { x: 6, y: 3 },
-            align: 'center', wordWrap: { width: 160 },
-          })
-          .setOrigin(0.5, 1)
-          .setDepth(100000);
-        this.tauntBubbles[p.id] = bubble;
-      }
-      bubble
-        .setText(label)
-        .setPosition(p.x, p.y - 58)
-        .setColor(hasTaunt ? '#0b1120' : '#dbe7ff')
-        .setBackgroundColor(hasTaunt ? '#fde68a' : '#0b1120cc')
-        .setFontSize(hasTaunt ? 13 : 10)
-        .setAlpha(1)
-        .setVisible(true);
-    }
-    // The 0G status pill lives in the React HUD (GameHUD), not here — a Phaser
-    // fixed-text would render under the DOM HUD overlay and be invisible.
-  }
-
-  /** Short, readable label for a bot's current 0G-chosen tactic. */
-  private modeLabel(mode: string): string {
-    switch (mode) {
-      case 'hunt': return '▸ HUNTING';
-      case 'intercept': return '⊳ CUTTING OFF';
-      case 'guard': return '◆ GUARDING';
-      case 'flee': return '✦ FLEEING';
-      default: return '· roaming';
     }
   }
 
