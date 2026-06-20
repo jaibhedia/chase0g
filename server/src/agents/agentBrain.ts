@@ -53,6 +53,10 @@ const REQUEST_TIMEOUT_MS = 6000;
 // Bounded so intent JSON can't run away, but well within the model's [10,2048] range.
 const MAX_TOKENS = 800;
 const MAX_TAUNT_LEN = 80;
+// After a 429 we stop calling 0G for a while so we don't keep hammering the limit;
+// agents run on cached intents + local steering meanwhile.
+const RATE_LIMIT_BACKOFF_MS = 20000;
+let backoffUntil = 0;
 
 /** Last successful decision per room — degrade to this on a transient failure. */
 const lastGood = new Map<string, Intent[]>();
@@ -198,20 +202,31 @@ export async function decideIntents(
     return { intents: lastGood.get(snap.roomCode) ?? [], source: 'fallback' };
   }
 
+  const cacheResult = () => {
+    const cached = lastGood.get(snap.roomCode);
+    return { intents: cached ?? [], source: (cached ? 'cache' : 'fallback') as IntentSource };
+  };
+
+  // In a rate-limit backoff window: skip the call entirely, run on cached intents.
+  if (Date.now() < backoffUntil) return cacheResult();
+
   // Feed the room's previous decision back in as rolling context so tactics stay
-  // coherent across ticks instead of each call deciding blind.
+  // coherent across ticks instead of each call deciding blind. ONE call (no retry —
+  // retrying on a 429 only makes the rate limit worse).
   const prev = lastGood.get(snap.roomCode);
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      const intents = await callOnce(og, snap, agents, prev);
-      lastGood.set(snap.roomCode, intents);
-      return { intents, source: 'og' };
-    } catch (err) {
-      if (attempt === 1) {
-        console.warn('[0G] inference failed, degrading:', (err as Error).message);
-      }
+  try {
+    const intents = await callOnce(og, snap, agents, prev);
+    lastGood.set(snap.roomCode, intents);
+    return { intents, source: 'og' };
+  } catch (err) {
+    const status = (err as { status?: number })?.status;
+    const msg = (err as Error).message || '';
+    if (status === 429 || msg.includes('429') || /rate limit/i.test(msg)) {
+      backoffUntil = Date.now() + RATE_LIMIT_BACKOFF_MS;
+      console.warn(`[0G] rate limited — backing off ${RATE_LIMIT_BACKOFF_MS / 1000}s (using cached intents)`);
+    } else {
+      console.warn('[0G] inference failed, degrading:', msg);
     }
+    return cacheResult();
   }
-  const cached = lastGood.get(snap.roomCode);
-  return { intents: cached ?? [], source: cached ? 'cache' : 'fallback' };
 }

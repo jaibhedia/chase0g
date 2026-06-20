@@ -15,7 +15,10 @@ const CHAR_SPRITES: Record<string, { name: string }> = {
 const SPRITE_SCALE = 4;
 /** How often the client asks 0G Compute for fresh agent intents (slow tier). The
  *  LLM only sets strategy at this cadence; per-frame steering stays local. */
-const AGENT_TICK_MS = 2500;
+// 0G strategy cadence. Kept conservative to respect the testnet router rate limit —
+// the local fast-tier steering reacts instantly between ticks, so the LLM only needs
+// to refresh high-level strategy/taunts occasionally.
+const AGENT_TICK_MS = 5000;
 /** First power-up unlocks 15s into the match (matches the base reload cadence). */
 const POWER_UP_UNLOCK_TIME_MS = 15000;
 /** Bot move speed = character.speed * mult * dt (human baseline uses 120 px/s). */
@@ -129,8 +132,6 @@ export class GameScene extends Phaser.Scene {
   // --- 0G Compute agent brains (slow tier) ---
   private agentNetBound = false;
   private lastAgentTick = 0;
-  /** Egg holder id at the last agent tick — a change triggers an immediate re-think. */
-  private lastAgentEggHolder: string | null = null;
   private onAgentIntents?: (payload: any) => void;
   /** Last-known 0G Compute status (pushed to the store for the HUD pill). */
   private ogEnabled = false;
@@ -1843,17 +1844,10 @@ export class GameScene extends Phaser.Scene {
 
     const store = useGameStore.getState();
     const holder = this.gsPlayers.find((p) => p.hasEgg);
-    const holderId = holder ? holder.id : null;
-    const sinceLast = now - this.lastAgentTick;
-    // Re-think on a steady cadence, OR immediately when the egg changes hands (so the
-    // LLM strategy/taunts stay in sync with the action) — but rate-limited so a bouncy
-    // egg can't spam 0G. The local steering already reacts instantly between ticks.
-    const eggChanged = holderId !== this.lastAgentEggHolder;
-    const due = sinceLast >= AGENT_TICK_MS;
-    const eventTick = eggChanged && sinceLast >= 1200;
-    if (due || eventTick) {
+    // Steady cadence only. (An egg-handoff event-tick was tried but it blew past the
+    // testnet rate limit; the local steering already reacts to handoffs instantly.)
+    if (now - this.lastAgentTick >= AGENT_TICK_MS) {
       this.lastAgentTick = now;
-      this.lastAgentEggHolder = holderId;
       const eggPos = store.eggPosition;
       socket.emit('agent-tick', {
         roomCode: this.roomCode || `solo-${this.localUserId || 'anon'}`,

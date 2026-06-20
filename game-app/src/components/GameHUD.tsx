@@ -55,10 +55,13 @@ export default function GameHUD() {
 
   useEffect(() => {
     const checkMobile = () => {
-      const mobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ||
-                     window.innerWidth <= 1024 ||
-                     window.innerHeight <= 1024 ||
-                     ('ontouchstart' in window);
+      // Touch DEVICE detection — NOT screen size. The old innerWidth/innerHeight<=1024
+      // check wrongly flagged laptops (incl. MacBooks) as mobile, hiding the minimap,
+      // the 0G agents panel, and the desktop power-up cluster. A real phone/tablet is
+      // pointer:coarse AND touch-capable; a laptop is pointer:fine.
+      const coarse = window.matchMedia?.('(pointer: coarse)').matches ?? false;
+      const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+      const mobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || (coarse && hasTouch);
       setIsMobile(mobile);
     };
 
