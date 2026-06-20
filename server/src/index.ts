@@ -473,7 +473,7 @@ async function ogSmokeTest(): Promise<void> {
   const started = Date.now();
   try {
     const r = await og.chat.completions.create(
-      { model: OG_MODEL, messages: [{ role: 'user', content: 'Reply with the single word: ok' }], max_tokens: 5 },
+      { model: OG_MODEL, messages: [{ role: 'user', content: 'Reply with the single word: ok' }], max_tokens: 16 },
       { timeout: 8000, maxRetries: 0 },
     );
     const reply = r.choices?.[0]?.message?.content?.trim() ?? '';

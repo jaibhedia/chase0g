@@ -47,7 +47,11 @@ export type IntentSource = 'og' | 'cache' | 'fallback';
 
 const MODES: AgentMode[] = ['hunt', 'flee', 'guard', 'intercept', 'roam'];
 const PERSONAS: AgentPersona[] = ['aggressive', 'sneaky', 'cocky', 'cautious'];
-const REQUEST_TIMEOUT_MS = 2500;
+// Real qwen2.5-omni round-trips run ~2–3s, so a tight 2.5s timeout would kill valid
+// responses. 6s leaves headroom; the per-room in-flight guard prevents overlap.
+const REQUEST_TIMEOUT_MS = 6000;
+// Bounded so intent JSON can't run away, but well within the model's [10,2048] range.
+const MAX_TOKENS = 800;
 const MAX_TAUNT_LEN = 80;
 
 /** Last successful decision per room — degrade to this on a transient failure. */
@@ -90,11 +94,29 @@ function buildUserPrompt(snap: AgentSnapshot, agents: SnapshotPlayer[]): string 
   return `Current state:\n${JSON.stringify(compact)}\n\nReturn one intent per agent in youControl.`;
 }
 
+/** Extract the JSON object from a model reply that may be wrapped in prose or a
+ *  ```json fence. Returns the parsed value, or null if nothing parses. */
+function extractJson(content: string): any {
+  const stripped = content.replace(/```json\s*|\s*```/gi, '').trim();
+  try {
+    return JSON.parse(stripped);
+  } catch {
+    const start = stripped.indexOf('{');
+    const end = stripped.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+      try { return JSON.parse(stripped.slice(start, end + 1)); } catch { /* fall through */ }
+    }
+    return null;
+  }
+}
+
 /** Coerce a raw model object into a safe Intent, clamped to known ids/enums. */
 function sanitize(raw: any, agentIds: Set<string>, playerIds: Set<string>): Intent | null {
   if (!raw || typeof raw.agentId !== 'string' || !agentIds.has(raw.agentId)) return null;
   const mode: AgentMode = MODES.includes(raw.mode) ? raw.mode : 'roam';
-  const persona: AgentPersona | undefined = PERSONAS.includes(raw.persona) ? raw.persona : undefined;
+  // Models often capitalize ("Aggressive") — normalize before the enum check.
+  const personaLc = typeof raw.persona === 'string' ? (raw.persona.toLowerCase() as AgentPersona) : undefined;
+  const persona: AgentPersona | undefined = personaLc && PERSONAS.includes(personaLc) ? personaLc : undefined;
   const targetId = typeof raw.targetId === 'string' && playerIds.has(raw.targetId) ? raw.targetId : undefined;
   const taunt =
     typeof raw.taunt === 'string' && raw.taunt.trim()
@@ -108,6 +130,8 @@ async function callOnce(
   snap: AgentSnapshot,
   agents: SnapshotPlayer[],
 ): Promise<Intent[]> {
+  // NOTE: no response_format json_object — qwen2.5-omni rejects JSON mode
+  // ("model_not_capable"). We instruct JSON in the prompt and parse it from text.
   const completion = await og.chat.completions.create(
     {
       model: OG_MODEL,
@@ -116,13 +140,13 @@ async function callOnce(
         { role: 'user', content: buildUserPrompt(snap, agents) },
       ],
       temperature: 0.9,
-      response_format: { type: 'json_object' },
+      max_tokens: MAX_TOKENS,
     },
     { timeout: REQUEST_TIMEOUT_MS, maxRetries: 0 },
   );
 
   const content = completion.choices?.[0]?.message?.content ?? '';
-  const parsed = JSON.parse(content);
+  const parsed = extractJson(content);
   const rawList: any[] = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.intents) ? parsed.intents : [];
 
   const agentIds = new Set(agents.map((a) => a.id));

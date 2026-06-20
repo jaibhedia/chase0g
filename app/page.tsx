@@ -18,15 +18,15 @@ export default function Home() {
 
   return (
     <main className="h-screen h-[100dvh] w-full flex flex-col relative overflow-y-auto">
-      {/* Main Menu Background — 16:9 art with logo + dinos. `object-contain` keeps the
-          WHOLE image visible (never cropped) on any aspect ratio; the matching green
-          fill behind it letterboxes cleanly. Pinned to the top so the logo always shows
-          and the bottom green area frames the Play button. */}
+      {/* Main Menu Background — 16:9 art with logo + dinos. `object-cover` fills the
+          whole viewport edge-to-edge (no green letterbox), `object-top` anchors the art
+          to the top so the logo never crops; only the bottom grass is trimmed on taller
+          screens. The Play button is a separate overlay below, so cropping doesn't hide it. */}
       <div className="absolute inset-0 z-0 bg-[#1a3a1a]">
         <img
           src="/assets/main_bg.png"
           alt="Chase Dinosaurs"
-          className="w-full h-full object-contain object-top"
+          className="w-full h-full object-cover object-top"
           style={{ imageRendering: 'pixelated' }}
         />
       </div>
