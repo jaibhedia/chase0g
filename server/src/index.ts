@@ -16,6 +16,10 @@
  *
  * Port: PORT (Render) or SOCKET_PORT, default 3001.
  */
+// MUST be first: loads server/.env into process.env before any module below reads
+// it (computeRouter.ts reads OG_* at import time). No-op on Render, which injects
+// env vars directly. Never commit the real .env.
+import 'dotenv/config';
 import { createServer } from 'node:http';
 import express from 'express';
 import cors from 'cors';
