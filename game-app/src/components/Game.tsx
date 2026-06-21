@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGameStore } from '@/store/gameStore';
 import GameCanvas from '@/components/GameCanvas';
@@ -16,8 +16,10 @@ export interface GameProps {
 
 export function Game({ onGameEnd }: GameProps) {
   const { gamePhase, countdownTimer, players, userId } = useGameStore();
+  const replay = useGameStore((s) => s.replay);
   const [mobileDirection, setMobileDirection] = useState({ x: 0, y: 0 });
   const [mobilePowerUpPressed, setMobilePowerUpPressed] = useState(false);
+  const endedRef = useRef(false);
 
   const currentPlayer = players.find(
     (p) => p.userId === userId || (!p.isBot && players.length > 0)
@@ -73,9 +75,15 @@ export function Game({ onGameEnd }: GameProps) {
     }
   }, [mobilePowerUpPressed]);
 
+  // On match end, give the 0G Storage replay upload a brief moment to return its
+  // verifiable root hash (the scene mirrors it to localStorage for the results page),
+  // then hand off. Capped so we never hang if storage is slow/disabled.
   useEffect(() => {
-    if (gamePhase === 'ended') onGameEnd();
-  }, [gamePhase, onGameEnd]);
+    if (gamePhase !== 'ended' || endedRef.current) return;
+    if (replay.done) { endedRef.current = true; onGameEnd(); return; }
+    const t = setTimeout(() => { endedRef.current = true; onGameEnd(); }, 7000);
+    return () => clearTimeout(t);
+  }, [gamePhase, replay.done, onGameEnd]);
 
   return (
     <main
@@ -109,6 +117,39 @@ export function Game({ onGameEnd }: GameProps) {
           </motion.div>
         )}
       </AnimatePresence>
+
+      <AnimatePresence>
+        {gamePhase === 'ended' && (
+          <motion.div
+            key="securing-replay"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-[70] flex items-center justify-center bg-black/55 pointer-events-none"
+          >
+            <div className="px-panel px-6 py-5 flex flex-col items-center gap-2 text-center">
+              <span
+                className="inline-block h-2.5 w-2.5 rounded-full"
+                style={{
+                  background: replay.done && replay.rootHash ? '#4ade80' : '#ffc93c',
+                  boxShadow: replay.done && replay.rootHash ? '0 0 8px #4ade80' : '0 0 8px #ffc93c',
+                }}
+              />
+              <p className="px-heading text-sm sm:text-base" style={{ color: '#ffc93c', textShadow: '2px 2px 0 #11111c' }}>
+                {replay.done
+                  ? (replay.rootHash ? 'Replay stored on 0G ✓' : 'Match complete')
+                  : 'Securing replay on 0G Storage…'}
+              </p>
+              {replay.done && replay.rootHash && (
+                <p className="px-heading text-[8px] uppercase tracking-wider text-[#9fb0d8] break-all max-w-[260px]">
+                  {replay.rootHash.slice(0, 18)}…{replay.rootHash.slice(-6)}
+                </p>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <MobileControls
         onDirectionChange={setMobileDirection}
         onPowerUpPress={() => setMobilePowerUpPressed(true)}

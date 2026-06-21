@@ -145,6 +145,10 @@ export class GameScene extends Phaser.Scene {
   /** Last-known 0G Compute status (pushed to the store for the HUD pill). */
   private ogEnabled = false;
   private ogSource: 'og' | 'cache' | 'fallback' = 'fallback';
+  // --- 0G Storage replay (Phase 2) ---
+  private replayNetBound = false;
+  private onReplayStored?: (payload: any) => void;
+  private replayRequested = false;
   /** Throttle for pushing minimap blips to the store (~12Hz). */
   private lastMinimap = 0;
   /** Overhead taunt speech bubbles, keyed by player id (behavior stays in the HUD panel). */
@@ -2873,5 +2877,58 @@ export class GameScene extends Phaser.Scene {
       ? `🥚 You held the egg at the end! (${grabs} steals)`
       : `🥚 ${winner.character.name} held the egg at the end! (${grabs} steals)`;
     store.setGameResult(winner, msg);
+    this.requestReplayStorage(winner);
+  }
+
+  /**
+   * Phase 2 — kick off the verifiable 0G Storage upload of this match's replay (result
+   * + the real 0G Compute decision transcript). We bind a one-shot listener for the
+   * resulting Merkle root hash, mirror it to the store + localStorage (so the cross-
+   * origin results screen can read it), and emit `store-replay` to the server. The
+   * roomCode MUST match the agent-tick key so the server finds this match's transcript.
+   */
+  private requestReplayStorage(winner: Player) {
+    if (this.replayRequested) return;
+    this.replayRequested = true;
+    const socket = getGameSocket();
+    const store = useGameStore.getState();
+    store.setReplay({ storing: true, done: false });
+    if (!socket) { store.setReplay({ storing: false, done: true }); return; }
+
+    if (!this.replayNetBound) {
+      this.replayNetBound = true;
+      this.onReplayStored = (payload: any) => {
+        if (!payload) return;
+        const info = {
+          storing: false,
+          done: true,
+          rootHash: payload.rootHash ?? null,
+          txHash: payload.txHash ?? null,
+          transcriptLen: payload.transcriptLen ?? 0,
+          ogStorageEnabled: !!payload.ogStorageEnabled,
+        };
+        useGameStore.getState().setReplay(info);
+        // Persist for the (separate) results page, which is a fresh cross-origin load.
+        try { localStorage.setItem('chase-replay', JSON.stringify(info)); } catch { /* ignore */ }
+      };
+      socket.on('replay-stored', this.onReplayStored);
+      this.events.once('shutdown', () => {
+        if (this.onReplayStored) socket.off('replay-stored', this.onReplayStored);
+        this.onReplayStored = undefined;
+        this.replayNetBound = false;
+      });
+    }
+
+    const rc = this.roomCode || `solo-${this.localUserId || 'anon'}`;
+    const result = {
+      winner: { id: winner.id, name: winner.character.name, userId: winner.userId ?? null, eggHoldCount: winner.eggHoldCount ?? 0 },
+      players: this.gsPlayers.map((p) => ({
+        id: p.id, name: p.character.name, isBot: !!p.isBot,
+        userId: p.userId ?? null, eggHoldCount: p.eggHoldCount ?? 0, persona: p.persona ?? null,
+      })),
+    };
+    // Clear any stale hash from a previous match so the results page doesn't show it.
+    try { localStorage.removeItem('chase-replay'); } catch { /* ignore */ }
+    socket.emit('store-replay', { roomCode: rc, result });
   }
 }

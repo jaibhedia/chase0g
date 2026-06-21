@@ -24,8 +24,9 @@ import { createServer } from 'node:http';
 import express from 'express';
 import cors from 'cors';
 import { Server, type Socket } from 'socket.io';
-import { decideIntents, forgetRoom, type AgentSnapshot } from './agents/agentBrain';
+import { decideIntents, forgetRoom, getTranscript, type AgentSnapshot } from './agents/agentBrain';
 import { ogComputeEnabled, getOgClient, OG_MODEL } from './og/computeRouter';
+import { uploadReplay, ogStorageEnabled } from './og/storage';
 
 const PORT = Number(process.env.SOCKET_PORT || process.env.PORT || 3001);
 /** How long a disconnected player's slot is held open for them to come back. */
@@ -61,6 +62,13 @@ const rooms = new Map<string, Room>();
 /** Rooms with an agent-brain inference in flight — prevents overlapping 0G calls
  *  (and duplicate spend) for the same room. */
 const agentTickInFlight = new Set<string>();
+
+/** Replay upload bookkeeping (Phase 2 / 0G Storage). Upload a given room's replay to
+ *  0G Storage exactly once, then serve the cached {rootHash,txHash} to any later asker
+ *  (each MP client emits store-replay independently when its match ends). */
+interface StoredReplay { rootHash: string | null; txHash: string | null; transcriptLen: number; ogStorageEnabled: boolean; }
+const replayResults = new Map<string, StoredReplay>();
+const replayInFlight = new Set<string>();
 
 function genRoomCode(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -105,7 +113,7 @@ app.get('/health', (_req, res) => {
     ok: true,
     rooms: rooms.size,
     uptime: process.uptime(),
-    ai: { ogComputeEnabled, model: OG_MODEL || null },
+    ai: { ogComputeEnabled, model: OG_MODEL || null, ogStorageEnabled },
   });
 });
 
@@ -362,6 +370,58 @@ io.on('connection', (socket: Socket<any, any, any, SocketData>) => {
     if (payload?.roomCode) io.to(payload.roomCode).emit('game-finished', payload);
   });
 
+  /**
+   * Phase 2 — 0G Storage. At match end the client sends its result; we bundle it with
+   * the match's REAL 0G Compute decision transcript and upload it to 0G Storage, then
+   * reply with the verifiable Merkle root hash (shown on the results screen). Uploaded
+   * once per room and cached, so every MP client (and a single-player solo room) gets
+   * the same artifact. `roomCode` matches the agent-tick key (incl. `solo-<userId>`).
+   */
+  socket.on('store-replay', async (payload: { roomCode?: string; result?: any }) => {
+    const rc = payload?.roomCode || socket.data.roomCode;
+    if (!rc) return;
+
+    const reply = (r: StoredReplay) => {
+      socket.emit('replay-stored', r);
+      socket.to(rc).emit('replay-stored', r);
+    };
+
+    // Already uploaded for this room → serve the cached artifact.
+    const cached = replayResults.get(rc);
+    if (cached) { reply(cached); return; }
+    if (replayInFlight.has(rc)) return; // upload underway; the broadcast will reach us
+    replayInFlight.add(rc);
+
+    const transcript = getTranscript(rc);
+    try {
+      const bundle = {
+        game: 'chase-zero',
+        version: 1,
+        roomCode: rc,
+        finishedAt: Date.now(),
+        result: payload?.result ?? null,
+        // The proof the agents really reasoned on 0G: every decision, timestamped.
+        aiDecisionTranscript: transcript,
+        decisionCount: transcript.length,
+      };
+      const uploaded = ogStorageEnabled ? await uploadReplay(bundle) : null;
+      const result: StoredReplay = {
+        rootHash: uploaded?.rootHash ?? null,
+        txHash: uploaded?.txHash ?? null,
+        transcriptLen: transcript.length,
+        ogStorageEnabled,
+      };
+      if (uploaded) replayResults.set(rc, result); // only cache a real success
+      if (uploaded) console.log(`[0G Storage] replay stored room=${rc} root=${uploaded.rootHash} decisions=${transcript.length}`);
+      reply(result);
+    } catch (err) {
+      console.warn('[0G Storage] store-replay error:', (err as Error).message);
+      socket.emit('replay-stored', { rootHash: null, txHash: null, transcriptLen: transcript.length, ogStorageEnabled });
+    } finally {
+      replayInFlight.delete(rc);
+    }
+  });
+
   // --- Proximity voice chat: WebRTC signalling relay (room-scoped) ---
   socket.on('voice-join', ({ roomCode, userId }: { roomCode: string; userId: string }) => {
     const room = rooms.get(roomCode);
@@ -412,6 +472,7 @@ io.on('connection', (socket: Socket<any, any, any, SocketData>) => {
     if (room.players.length === 0) {
       rooms.delete(rc);
       forgetRoom(rc);
+      replayResults.delete(rc);
     } else {
       io.to(rc).emit('player-left', {
         userId: uid,

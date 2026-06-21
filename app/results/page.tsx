@@ -2,15 +2,27 @@
 
 import { useRouter } from 'next/navigation';
 import { useGameStore, Player } from '../store/gameStore';
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { audioManager } from '@/app/utils/audioManager';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
-import { Home, RotateCcw, Trophy, Crown, Skull, Medal, Target, Star, ThumbsUp, Gamepad2 } from 'lucide-react';
+import { Home, RotateCcw, Trophy, Crown, Skull, Medal, Target, Star, ThumbsUp, Gamepad2, ShieldCheck, ExternalLink, Cpu } from 'lucide-react';
+
+/** 0G Storage replay artifact passed from the game (hash handoff or localStorage). */
+interface ReplayInfo {
+  rootHash: string | null;
+  txHash: string | null;
+  transcriptLen: number;
+  ogStorageEnabled: boolean;
+}
+// Galileo testnet explorers — the verifiable proof links for the demo.
+const OG_TX_EXPLORER = 'https://chainscan-galileo.0g.ai/tx/';
+const OG_STORAGE_SCAN = 'https://storagescan-galileo.0g.ai/';
 
 export default function Results() {
   const router = useRouter();
   const { winner, gameMessage, resetGame, players, setGameResult, setPlayers } = useGameStore();
+  const [replay, setReplay] = useState<ReplayInfo | null>(null);
 
   const playerWon = winner?.id === 'player';
 
@@ -72,6 +84,7 @@ export default function Results() {
         if (res?.winner) {
           setGameResult(res.winner, res.gameMessage ?? '');
           setPlayers(res.players ?? []);
+          if (res.replay) setReplay(res.replay);
         } else {
           router.push('/');
         }
@@ -82,6 +95,16 @@ export default function Results() {
       audioManager.play(playerWon ? 'victory' : 'defeat');
     }
   }, [winner, router, playerWon, setGameResult, setPlayers]);
+
+  // Same-origin (production) fallback: the game mirrors the 0G Storage artifact to
+  // localStorage; the hash handoff above is the cross-origin (dev) channel.
+  useEffect(() => {
+    if (replay) return;
+    try {
+      const raw = localStorage.getItem('chase-replay');
+      if (raw) setReplay(JSON.parse(raw));
+    } catch { /* ignore */ }
+  }, [replay]);
 
   const handlePlayAgain = () => {
     resetGame();
@@ -354,6 +377,53 @@ export default function Results() {
             </p>
           </motion.div>
         </motion.div>
+
+        {/* Verifiable replay on 0G Storage — the criterion #01 artifact made tangible:
+            the match (result + the REAL AI decision transcript) is addressable by an
+            on-chain Merkle root, proving the agents actually reasoned on 0G. */}
+        {replay?.rootHash && (
+          <motion.div
+            initial={{ y: 40, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            transition={{ delay: 0.85 }}
+            className="pixel-panel p-5 text-left"
+            style={{ borderColor: '#5fcde4' }}
+          >
+            <h3 className="text-sm md:text-lg text-[#5fcde4] mb-3 uppercase tracking-wider flex items-center justify-center gap-2 pixel-shadow">
+              <ShieldCheck className="w-5 h-5" /> Verifiable on 0G Storage
+            </h3>
+            <p className="text-[#f4e7c3]/80 text-xs text-center mb-4 inline-flex items-center justify-center gap-1.5 w-full">
+              <Cpu className="w-3.5 h-3.5 shrink-0" />
+              {replay.transcriptLen} live AI decisions from 0G Compute, stored as a tamper-proof replay.
+            </p>
+            <div className="space-y-2">
+              <div className="bg-[#261309] pixel-border p-3">
+                <p className="text-[10px] uppercase tracking-wider text-[#9fb0d8] mb-1">Storage root hash</p>
+                <p className="text-[#f4e7c3] text-xs font-mono break-all" title={replay.rootHash}>{replay.rootHash}</p>
+              </div>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <a
+                  href={OG_STORAGE_SCAN}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex-1 inline-flex items-center justify-center gap-1.5 bg-[#4d2813] hover:brightness-110 pixel-border px-3 py-2 text-[#f4e7c3] text-xs uppercase tracking-wider transition-all"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" /> 0G Storage Scan
+                </a>
+                {replay.txHash && (
+                  <a
+                    href={`${OG_TX_EXPLORER}${replay.txHash}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex-1 inline-flex items-center justify-center gap-1.5 bg-[#4d2813] hover:brightness-110 pixel-border px-3 py-2 text-[#f4e7c3] text-xs uppercase tracking-wider transition-all"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" /> Storage Tx
+                  </a>
+                )}
+              </div>
+            </div>
+          </motion.div>
+        )}
 
         {/* Action Buttons */}
         <motion.div

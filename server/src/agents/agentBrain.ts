@@ -61,8 +61,35 @@ let backoffUntil = 0;
 /** Last successful decision per room — degrade to this on a transient failure. */
 const lastGood = new Map<string, Intent[]>();
 
+/** One timestamped row of the match's AI decision transcript (Phase 2 / 0G Storage):
+ *  exactly what the 0G Compute brains decided, when. Bundled into the verifiable
+ *  replay uploaded to 0G Storage at match end. */
+export interface TranscriptEntry {
+  t: number;
+  source: IntentSource;
+  /** holder player id at decision time (null = egg loose), for replay context. */
+  holderId: string | null;
+  intents: Intent[];
+}
+/** Rolling per-room transcript. Capped so a long match can't grow unbounded. */
+const transcripts = new Map<string, TranscriptEntry[]>();
+const MAX_TRANSCRIPT = 400;
+
+/** The match's recorded AI decisions (for the 0G Storage replay bundle). */
+export function getTranscript(roomCode: string): TranscriptEntry[] {
+  return transcripts.get(roomCode) ?? [];
+}
+
+function recordTranscript(roomCode: string, entry: TranscriptEntry): void {
+  const arr = transcripts.get(roomCode) ?? [];
+  arr.push(entry);
+  if (arr.length > MAX_TRANSCRIPT) arr.splice(0, arr.length - MAX_TRANSCRIPT);
+  transcripts.set(roomCode, arr);
+}
+
 export function forgetRoom(roomCode: string): void {
   lastGood.delete(roomCode);
+  transcripts.delete(roomCode);
 }
 
 const SYSTEM_PROMPT = `You are the hive-mind controlling the AI opponents in "Chase · Zero", a top-down arena game.
@@ -217,6 +244,13 @@ export async function decideIntents(
   try {
     const intents = await callOnce(og, snap, agents, prev);
     lastGood.set(snap.roomCode, intents);
+    // Record this real 0G decision into the match transcript (Phase 2 replay bundle).
+    recordTranscript(snap.roomCode, {
+      t: Date.now(),
+      source: 'og',
+      holderId: snap.egg.holderId,
+      intents,
+    });
     return { intents, source: 'og' };
   } catch (err) {
     const status = (err as { status?: number })?.status;

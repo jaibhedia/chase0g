@@ -43,6 +43,17 @@ export interface AgentIntent {
   taunt?: string;
 }
 
+/** Verifiable match replay stored on 0G Storage (Phase 2). `rootHash` is the Merkle
+ *  root that addresses the replay bundle (result + AI decision transcript). */
+export interface ReplayInfo {
+  storing: boolean;
+  done: boolean;
+  rootHash: string | null;
+  txHash: string | null;
+  transcriptLen: number;
+  ogStorageEnabled: boolean;
+}
+
 /** One blip on the minimap. Fed from the scene at ~12Hz (throttled). */
 export interface MinimapDot {
   x: number;
@@ -133,6 +144,8 @@ interface GameState {
   ogStatus: { live: boolean; source: 'og' | 'cache' | 'fallback' };
   /** Throttled snapshot of world positions for the minimap (world dims + blips). */
   minimap: { w: number; h: number; dots: MinimapDot[] };
+  /** 0G Storage replay state (Phase 2) for the results screen. */
+  replay: ReplayInfo;
 
   setUserId: (id: string | null) => void;
   initUserId: () => string;
@@ -153,6 +166,7 @@ interface GameState {
   setPaused: (value: boolean) => void;
   setOgStatus: (status: { live: boolean; source: 'og' | 'cache' | 'fallback' }) => void;
   setMinimap: (minimap: { w: number; h: number; dots: MinimapDot[] }) => void;
+  setReplay: (updates: Partial<ReplayInfo>) => void;
   setEgg: (ownerId: string | null, position: { x: number; y: number } | null) => void;
   setLastEggHolderId: (id: string | null) => void;
   lockCharacter: (characterId: string) => void;
@@ -183,6 +197,7 @@ const initialState = {
   paused: false,
   ogStatus: { live: false, source: 'fallback' as const },
   minimap: { w: 0, h: 0, dots: [] as MinimapDot[] },
+  replay: { storing: false, done: false, rootHash: null, txHash: null, transcriptLen: 0, ogStorageEnabled: false } as ReplayInfo,
 };
 
 export const useGameStore = create<GameState>((set, get) => ({
@@ -222,6 +237,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   setPaused: (value) => set({ paused: value }),
   setOgStatus: (status) => set({ ogStatus: status }),
   setMinimap: (minimap) => set({ minimap }),
+  setReplay: (updates) => set((state) => ({ replay: { ...state.replay, ...updates } })),
   setEgg: (ownerId, position) => set({ eggOwnerId: ownerId, eggPosition: position }),
   setLastEggHolderId: (id) => set({ lastEggHolderId: id }),
   lockCharacter: (characterId) =>
