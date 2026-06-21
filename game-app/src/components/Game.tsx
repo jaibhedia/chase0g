@@ -87,7 +87,7 @@ export function Game({ onGameEnd }: GameProps) {
 
   return (
     <main
-      className="h-screen w-screen overflow-hidden relative touch-none"
+      className="h-screen h-[100dvh] w-screen overflow-hidden relative touch-none"
       style={{ touchAction: 'none', background: '#14141f' }}
     >
       <LandscapePrompt />

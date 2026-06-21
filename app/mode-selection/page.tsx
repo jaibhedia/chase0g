@@ -17,7 +17,9 @@ export default function ModeSelection() {
 
   const handleModeSelect = (mode: 'single-player' | 'multiplayer') => {
     setGameMode(mode);
-    router.push('/character-selection');
+    // Multiplayer picks character + map inside the lobby/waiting room, so skip the
+    // standalone character-selection screen. Single-player keeps the full pre-game flow.
+    router.push(mode === 'multiplayer' ? '/multiplayer-lobby' : '/character-selection');
   };
 
   const handleBackToHome = () => {
@@ -67,7 +69,7 @@ export default function ModeSelection() {
                 <User className="w-12 md:w-24 h-12 md:h-24 mx-auto text-blue-400 drop-shadow-2xl" />
               </motion.div>
               
-              <h2 className="pixel-font text-2xl md:text-4xl text-white mb-2 md:mb-4 tracking-wider">
+              <h2 className="pixel-font text-xl sm:text-2xl lg:text-4xl text-white mb-2 md:mb-4 tracking-wide break-words">
                 SOLO
               </h2>
               
@@ -118,7 +120,7 @@ export default function ModeSelection() {
                 <Users className="w-12 md:w-24 h-12 md:h-24 mx-auto text-green-400 drop-shadow-2xl" />
               </motion.div>
               
-              <h2 className="pixel-font text-2xl md:text-4xl text-white mb-2 md:mb-4 tracking-wider">
+              <h2 className="pixel-font text-xl sm:text-2xl lg:text-4xl text-white mb-2 md:mb-4 tracking-wide break-words">
                 MULTIPLAYER
               </h2>
               

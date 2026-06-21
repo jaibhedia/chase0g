@@ -56,7 +56,11 @@ const MAX_TAUNT_LEN = 80;
 // After a 429 we stop calling 0G for a while so we don't keep hammering the limit;
 // agents run on cached intents + local steering meanwhile.
 const RATE_LIMIT_BACKOFF_MS = 20000;
+// A 402 "insufficient balance" won't self-heal mid-session (needs a top-up at
+// pc.testnet.0g.ai), so we back off much longer instead of retrying every tick + spamming.
+const BALANCE_BACKOFF_MS = 300_000; // 5 min
 let backoffUntil = 0;
+let balanceWarned = false;
 
 /** Last successful decision per room — degrade to this on a transient failure. */
 const lastGood = new Map<string, Intent[]>();
@@ -244,6 +248,7 @@ export async function decideIntents(
   try {
     const intents = await callOnce(og, snap, agents, prev);
     lastGood.set(snap.roomCode, intents);
+    balanceWarned = false; // healthy again — allow a fresh warning if it later runs dry
     // Record this real 0G decision into the match transcript (Phase 2 replay bundle).
     recordTranscript(snap.roomCode, {
       t: Date.now(),
@@ -255,7 +260,13 @@ export async function decideIntents(
   } catch (err) {
     const status = (err as { status?: number })?.status;
     const msg = (err as Error).message || '';
-    if (status === 429 || msg.includes('429') || /rate limit/i.test(msg)) {
+    if (status === 402 || /insufficient balance/i.test(msg)) {
+      backoffUntil = Date.now() + BALANCE_BACKOFF_MS;
+      if (!balanceWarned) {
+        balanceWarned = true;
+        console.warn('[0G] Compute balance exhausted — pausing inference 5m; agents on scripted fallback. Top up at https://pc.testnet.0g.ai');
+      }
+    } else if (status === 429 || msg.includes('429') || /rate limit/i.test(msg)) {
       backoffUntil = Date.now() + RATE_LIMIT_BACKOFF_MS;
       console.warn(`[0G] rate limited — backing off ${RATE_LIMIT_BACKOFF_MS / 1000}s (using cached intents)`);
     } else {

@@ -1,9 +1,8 @@
 import { motion } from 'framer-motion';
 import { Menu, Egg } from 'lucide-react';
-import { useState, useEffect, useCallback } from 'react';
 import { useGameStore } from '@/store/gameStore';
-import { PowerUpHudCluster } from '@/components/PowerUpHudCluster';
 import { Minimap } from '@/components/Minimap';
+import { useIsTouchDevice } from '@/hooks/useIsTouchDevice';
 
 function formatMatchTime(seconds: number) {
   const s = Math.max(0, Math.floor(seconds));
@@ -21,8 +20,10 @@ const MODE_COLOR: Record<string, string> = {
 };
 
 export default function GameHUD() {
-  const { players, userId, timeRemaining, selectedCharacter, setPaused, ogStatus } = useGameStore();
-  const [isMobile, setIsMobile] = useState(false);
+  const { players, userId, timeRemaining, setPaused, ogStatus } = useGameStore();
+  // Single shared touch-device check — keeps the HUD in lockstep with MobileControls so
+  // the desktop chrome and the touch controls can never render at the same time.
+  const isMobile = useIsTouchDevice();
 
   const agents = players.filter((p) => p.isBot);
 
@@ -32,40 +33,6 @@ export default function GameHUD() {
   const hasEgg = currentPlayer?.hasEgg ?? false;
   const eggHolder = players.find((p) => p.hasEgg);
   const eggOnGround = !eggHolder;
-  const powerUpReady = currentPlayer?.powerUpReady ?? false;
-  const powerUpActive = currentPlayer?.powerUpActive ?? false;
-  const powerUpCooldown = currentPlayer?.powerUpCooldown ?? 0;
-  const cooldownMax =
-    currentPlayer?.powerUpCooldownMax ??
-    currentPlayer?.character?.powerUp?.cooldown ??
-    selectedCharacter?.powerUp?.cooldown ??
-    15000;
-  const activeDuration =
-    currentPlayer?.character?.powerUp?.duration ??
-    selectedCharacter?.powerUp?.duration ??
-    3000;
-
-  const triggerPowerUp = useCallback(() => {
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: ' ' }));
-    setTimeout(() => window.dispatchEvent(new KeyboardEvent('keyup', { key: ' ' })), 100);
-  }, []);
-
-  useEffect(() => {
-    const checkMobile = () => {
-      // Touch DEVICE detection — NOT screen size. The old innerWidth/innerHeight<=1024
-      // check wrongly flagged laptops (incl. MacBooks) as mobile, hiding the minimap,
-      // the 0G agents panel, and the desktop power-up cluster. A real phone/tablet is
-      // pointer:coarse AND touch-capable; a laptop is pointer:fine.
-      const coarse = window.matchMedia?.('(pointer: coarse)').matches ?? false;
-      const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-      const mobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || (coarse && hasTouch);
-      setIsMobile(mobile);
-    };
-
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-    return () => window.removeEventListener('resize', checkMobile);
-  }, []);
 
   return (
     <>
@@ -184,23 +151,10 @@ export default function GameHUD() {
         </div>
       )}
 
-      {!isMobile && <Minimap />}
-
-      {/* Power-up BUTTON only on touch devices (phones/tablets). On desktop you press
-          SPACE, so the on-screen button is removed there. */}
-      {isMobile && players.length > 0 && (
-        <div className="pointer-events-auto fixed bottom-6 left-6 z-[56]">
-          <PowerUpHudCluster
-            powerUpReady={powerUpReady}
-            powerUpActive={powerUpActive}
-            powerUpCooldown={powerUpCooldown}
-            cooldownMax={cooldownMax}
-            activeDuration={activeDuration}
-            onActivate={triggerPowerUp}
-            size={88}
-          />
-        </div>
-      )}
+      {/* Minimap: full size bottom-right on desktop; compact top-right on touch so it
+          clears the joystick (bottom-right) and the power-up (bottom-left). The touch
+          power-up button is owned solely by MobileControls — no duplicate here. */}
+      <Minimap isMobile={isMobile} />
     </>
   );
 }

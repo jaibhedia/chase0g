@@ -24,6 +24,7 @@ interface SocketContextType {
     playerName?: string;
   }) => Promise<any>;
   setPlayerReady: (isReady: boolean, roomCode?: string, userId?: string) => void;
+  chooseCharacter: (characterId: number, playerName: string, roomCode: string, userId: string) => void;
   startGame: () => void;
   leaveRoom: () => void;
   sendGameState: (roomCode: string, gameState: any) => void;
@@ -194,6 +195,12 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     socketRef.current?.emit('set-ready', { isReady, roomCode, userId });
   };
 
+  // Claim a character in the lobby. The server validates uniqueness and broadcasts the
+  // updated roster (or replies 'character-taken' if someone grabbed it first).
+  const chooseCharacter = (characterId: number, playerName: string, roomCode: string, userId: string) => {
+    socketRef.current?.emit('set-character', { characterId, playerName, roomCode, userId });
+  };
+
   const startGame = () => {
     if (socketRef.current) {
       socketRef.current.emit('start-game');
@@ -235,6 +242,7 @@ export function SocketProvider({ children }: { children: ReactNode }) {
       createRoom,
       joinRoom,
       setPlayerReady,
+      chooseCharacter,
       startGame,
       leaveRoom,
       sendGameState,

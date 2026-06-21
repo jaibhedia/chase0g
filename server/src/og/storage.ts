@@ -33,6 +33,15 @@ export interface ReplayUploadResult {
 let indexer: Indexer | null = null;
 let signer: ethers.Wallet | null = null;
 
+// Circuit breaker: the 0G Galileo storage flow contract intermittently reverts
+// (`require(false)`) on submit — a testnet-side issue, not ours. After a few straight
+// failures we stop attempting uploads for a cooldown so we don't spam 30s node timeouts +
+// giant revert logs on every match. Uploads resume automatically after the window.
+const STORAGE_FAIL_THRESHOLD = 3;
+const STORAGE_BACKOFF_MS = 300_000; // 5 min
+let storageFailures = 0;
+let storageBackoffUntil = 0;
+
 function getStorage(): { indexer: Indexer; signer: ethers.Wallet } | null {
   if (!ogStorageEnabled) return null;
   if (!indexer || !signer) {
@@ -55,6 +64,8 @@ function getStorage(): { indexer: Indexer; signer: ethers.Wallet } | null {
 export async function uploadReplay(bundle: unknown): Promise<ReplayUploadResult | null> {
   const s = getStorage();
   if (!s) return null;
+  // In the circuit-breaker window: skip the attempt entirely (fast no-op).
+  if (Date.now() < storageBackoffUntil) return null;
 
   const tmpPath = join(tmpdir(), `chase-replay-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.json`);
   let file: ZgFile | null = null;
@@ -72,9 +83,23 @@ export async function uploadReplay(bundle: unknown): Promise<ReplayUploadResult 
     const [tx, upErr] = await s.indexer.upload(file, RPC, s.signer as unknown as Parameters<typeof s.indexer.upload>[2]);
     if (upErr) throw upErr;
 
+    storageFailures = 0; // healthy again
     return { rootHash, txHash: tx?.txHash ?? '' };
   } catch (err) {
-    console.warn('[0G Storage] upload failed:', (err as Error).message);
+    // Log a one-line reason (not the SDK's giant transaction dump) and trip the breaker
+    // after repeated failures so we stop hammering a broken testnet flow contract.
+    const msg = (err as Error).message || String(err);
+    const reason = /require\(false\)|execution reverted/i.test(msg)
+      ? 'testnet flow contract reverted (require(false))'
+      : msg.split('\n')[0].slice(0, 140);
+    storageFailures += 1;
+    if (storageFailures >= STORAGE_FAIL_THRESHOLD) {
+      storageBackoffUntil = Date.now() + STORAGE_BACKOFF_MS;
+      storageFailures = 0;
+      console.warn(`[0G Storage] upload failed (${reason}). Pausing uploads 5m; matches still finish + post on-chain without a replay hash.`);
+    } else {
+      console.warn(`[0G Storage] upload failed (${reason}).`);
+    }
     return null;
   } finally {
     if (file) await file.close().catch(() => {});

@@ -11,8 +11,8 @@ import { ArrowLeft, ArrowRight, Check, Globe, Lock, Play } from 'lucide-react';
 
 export default function MultiplayerLobby() {
   const router = useRouter();
-  const { selectedCharacter, selectedMap, gameMode, setMap, setServerStartTime, setRoomPlayers, setRoomCode: setStoreRoomCode, setMultiplayerHiddenFill, userId: storeUserId, initUserId } = useGameStore();
-  const { socket, createRoom, joinRoom, setPlayerReady, startGame, leaveRoom } = useSocket();
+  const { selectedCharacter, selectedMap, gameMode, setMap, setCharacter: setStoreCharacter, setServerStartTime, setRoomPlayers, setRoomCode: setStoreRoomCode, setMultiplayerHiddenFill, userId: storeUserId, initUserId } = useGameStore();
+  const { socket, createRoom, joinRoom, setPlayerReady, chooseCharacter, startGame, leaveRoom } = useSocket();
 
   const [roomCode, setRoomCode] = useState('');
   const [isCreating, setIsCreating] = useState(false);
@@ -26,6 +26,7 @@ export default function MultiplayerLobby() {
   const [isPublic, setIsPublic] = useState(true); // Default to public rooms
   const [publicRooms, setPublicRooms] = useState<any[]>([]);
   const [showPublicRooms, setShowPublicRooms] = useState(false);
+  const [charNotice, setCharNotice] = useState('');
   const hiddenFillStartedRef = useRef(false);
 
   // After 15s, fill remaining slots with bots to reach 4 players total
@@ -85,6 +86,13 @@ export default function MultiplayerLobby() {
     const id = storeUserId || initUserId();
     if (id) setUserId(id);
   }, [storeUserId, initUserId]);
+
+  // Multiplayer skips the standalone character-selection screen, so guarantee a character
+  // is set (default = first) for create/join. Players pick the real one + (host) the map
+  // in the waiting room below.
+  useEffect(() => {
+    if (!selectedCharacter) setStoreCharacter(characters[0]);
+  }, [selectedCharacter, setStoreCharacter]);
 
   useEffect(() => {
     if (!socket) {
@@ -157,6 +165,11 @@ export default function MultiplayerLobby() {
       }
     });
 
+    // A character swap we attempted lost a race — the server kept our old one.
+    socket.on('character-taken', () => {
+      setCharNotice('That character was just taken — pick another.');
+    });
+
     socket.on('game-starting', ({ countdown }) => {
       console.log(`Game starting in ${countdown} seconds...`);
     });
@@ -180,10 +193,23 @@ export default function MultiplayerLobby() {
       socket.off('player-joined');
       socket.off('player-left');
       socket.off('player-ready-update');
+      socket.off('character-taken');
       socket.off('game-starting');
       socket.off('game-started');
     };
   }, [socket, router, setServerStartTime, setRoomPlayers]);
+
+  // Keep the local store's selectedCharacter in lockstep with the server's roster — the
+  // server may auto-resolve a duplicate pick on join, and it's the source of truth the
+  // in-game scene reads for the LOCAL player's sprite.
+  useEffect(() => {
+    if (!isInRoom) return;
+    const mine = players.find((p) => p.user_id === userId);
+    if (!mine) return;
+    const cn = Number(mine.character_id);
+    const ch = characters.find((c) => parseInt(c.id.split('-')[1], 10) === cn);
+    if (ch && ch.id !== selectedCharacter?.id) setStoreCharacter(ch);
+  }, [players, userId, isInRoom, selectedCharacter?.id, setStoreCharacter]);
 
   // Fetch public rooms when component mounts
   useEffect(() => {
@@ -228,10 +254,7 @@ export default function MultiplayerLobby() {
     });
 
   const handleCreateRoom = async () => {
-    if (!selectedCharacter) {
-      setError('Please select character first');
-      return;
-    }
+    const character = selectedCharacter ?? characters[0];
 
     setIsCreating(true);
     setError('');
@@ -249,8 +272,8 @@ export default function MultiplayerLobby() {
         userId,
         mapId: gameMaps[0].id,
         gameMode: 'multiplayer',
-        characterId: parseInt(selectedCharacter.id.split('-')[1]),
-        playerName: selectedCharacter.name,
+        characterId: parseInt(character.id.split('-')[1]),
+        playerName: character.name,
         isPublic // Pass the public/private flag
       });
 
@@ -280,10 +303,7 @@ export default function MultiplayerLobby() {
       return;
     }
 
-    if (!selectedCharacter) {
-      setError('Please select a character first');
-      return;
-    }
+    const character = selectedCharacter ?? characters[0];
 
     setIsJoining(true);
     setError('');
@@ -298,8 +318,8 @@ export default function MultiplayerLobby() {
       const response: any = await joinRoom({
         roomCode: roomCode.toUpperCase(),
         userId,
-        characterId: parseInt(selectedCharacter.id.split('-')[1]),
-        playerName: selectedCharacter.name
+        characterId: parseInt(character.id.split('-')[1]),
+        playerName: character.name
       });
 
       setStoreRoomCode(roomCode.toUpperCase()); // persist for reconnect + voice in-game
@@ -333,10 +353,7 @@ export default function MultiplayerLobby() {
   };
 
   const handleJoinPublicRoom = async (publicRoomCode: string) => {
-    if (!selectedCharacter) {
-      setError('Please select a character first');
-      return;
-    }
+    const character = selectedCharacter ?? characters[0];
 
     setRoomCode(publicRoomCode);
     setStoreRoomCode(publicRoomCode); // persist for reconnect + voice in-game
@@ -353,8 +370,8 @@ export default function MultiplayerLobby() {
       const response: any = await joinRoom({
         roomCode: publicRoomCode,
         userId,
-        characterId: parseInt(selectedCharacter.id.split('-')[1]),
-        playerName: selectedCharacter.name
+        characterId: parseInt(character.id.split('-')[1]),
+        playerName: character.name
       });
 
       setIsInRoom(true);
@@ -401,6 +418,18 @@ export default function MultiplayerLobby() {
   // the "you are ready" banner can never disagree with the roster below it.
   const me = players.find((p) => p.user_id === userId);
   const isReady = !!me?.is_ready;
+
+  // Character picker — each character is held by exactly one player in the room.
+  const charNumOf = (c: { id: string }) => parseInt(c.id.split('-')[1], 10);
+  const myCharNum = me ? Number(me.character_id) : (selectedCharacter ? charNumOf(selectedCharacter) : null);
+  const takenByOthers = new Set(players.filter((p) => p.user_id !== userId).map((p) => Number(p.character_id)));
+  const pickCharacter = (c: typeof characters[number]) => {
+    const cn = charNumOf(c);
+    if (cn === myCharNum || takenByOthers.has(cn)) return;
+    setCharNotice('');
+    setStoreCharacter(c); // optimistic — keeps the in-game local sprite in sync
+    chooseCharacter(cn, c.name, roomCode, userId);
+  };
 
   // Map Selection View (only for host, shows after room created)
   if (showMapSelection && isHost && !selectedMap) {
@@ -605,10 +634,10 @@ export default function MultiplayerLobby() {
 
           <div className="mt-8 text-center">
             <Button
-              onClick={() => router.push('/character-selection')}
+              onClick={() => router.push('/mode-selection')}
               className="px-8 py-3"
             >
-              <span className="inline-flex items-center justify-center gap-2"><ArrowLeft className="w-4 h-4" /> Back to Character Selection</span>
+              <span className="inline-flex items-center justify-center gap-2"><ArrowLeft className="w-4 h-4" /> Back to Mode Selection</span>
             </Button>
           </div>
         </div>
@@ -685,6 +714,40 @@ export default function MultiplayerLobby() {
               </div>
             ))}
           </div>
+        </div>
+
+        {/* Character Picker — unique per room */}
+        <div className="p-6 pixel-panel mb-6">
+          <h3 className="pixel-font text-xl font-bold text-[#f4e7c3] mb-1">Your Character</h3>
+          <p className="text-[#f4e7c3]/60 text-sm mb-4">Each character is unique — grayed-out ones are already taken.</p>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {characters.map((c) => {
+              const cn = charNumOf(c);
+              const mine = cn === myCharNum;
+              const taken = takenByOthers.has(cn);
+              return (
+                <button
+                  key={c.id}
+                  type="button"
+                  disabled={taken || mine}
+                  onClick={() => pickCharacter(c)}
+                  className={`relative flex flex-col items-center gap-2 p-3 pixel-border transition-all ${
+                    mine
+                      ? 'bg-[#6ab04c] text-[#0e2a08]'
+                      : taken
+                        ? 'bg-[#3a2110] text-[#f4e7c3]/30 cursor-not-allowed'
+                        : 'bg-[#4d2813] text-[#f4e7c3] hover:brightness-110 cursor-pointer'
+                  }`}
+                >
+                  <span className="w-8 h-8 border-2 border-[#261309]" style={{ backgroundColor: c.color }} />
+                  <span className="font-bold text-sm uppercase">{c.name}</span>
+                  {mine && <span className="text-[10px] uppercase tracking-wider">You</span>}
+                  {taken && !mine && <span className="text-[10px] uppercase tracking-wider">Taken</span>}
+                </button>
+              );
+            })}
+          </div>
+          {charNotice && <p className="text-[#ffb36b] text-sm mt-3 text-center">{charNotice}</p>}
         </div>
 
         {/* Ready Button */}

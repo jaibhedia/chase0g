@@ -30,20 +30,20 @@ class AudioManager {
     // Real audio files (under the Vite base so they resolve in the embedded build too).
     const base = import.meta.env.BASE_URL;
     this.sounds.set('bgm-game', new Howl({
-      src: [`${base}assets/audio/theme.wav`],
-      format: ['wav'],
+      src: [`${base}assets/audio/theme.mp3`],
+      format: ['mp3'],
       loop: true,
-      html5: true, // stream the large theme instead of fully decoding it
+      html5: true, // stream the theme instead of fully decoding it
       volume: this.musicVolume,
     }));
     this.sounds.set('power-use', new Howl({
-      src: [`${base}assets/audio/powerup.wav`],
-      format: ['wav'],
+      src: [`${base}assets/audio/powerup.mp3`],
+      format: ['mp3'],
       volume: this.sfxVolume * 0.7,
     }));
     this.sounds.set('running', new Howl({
-      src: [`${base}assets/audio/running.wav`],
-      format: ['wav'],
+      src: [`${base}assets/audio/running.mp3`],
+      format: ['mp3'],
       loop: true,
       volume: this.sfxVolume * 0.45,
     }));

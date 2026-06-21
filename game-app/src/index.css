@@ -16,6 +16,13 @@ html, body, #root {
   padding: 0;
   overflow: hidden;
   font-family: "VT323", monospace;
+  /* Touch-game hardening: kill pull-to-refresh / rubber-band, text selection, and the
+     grey tap flash so dragging the joystick never scrolls the page or selects HUD text. */
+  overscroll-behavior: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
 }
 
 :root {

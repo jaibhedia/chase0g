@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import { Twitter, Send, Play } from 'lucide-react';
+import { Twitter, Send, Play, ShoppingBag, Trophy } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useGameStore } from './store/gameStore';
 import { useEffect } from 'react';
@@ -49,6 +49,26 @@ export default function Home() {
             Play
           </Button>
         </motion.div>
+
+        {/* Secondary nav — Store + Tournament (both Coming Soon) */}
+        <div className="flex items-center gap-2.5 sm:gap-3">
+          <button
+            type="button"
+            onClick={() => router.push('/asset-store')}
+            className="relative pixel-button flex items-center gap-2 px-4 py-2 text-sm opacity-90 hover:opacity-100 transition-opacity"
+          >
+            <ShoppingBag className="w-4 h-4" /> Store
+            <span className="absolute -top-2 -right-2 bg-[#ffc93c] text-[#261309] text-[8px] font-bold uppercase px-1 py-0.5 pixel-border">Soon</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => router.push('/tournament')}
+            className="relative pixel-button flex items-center gap-2 px-4 py-2 text-sm opacity-90 hover:opacity-100 transition-opacity"
+          >
+            <Trophy className="w-4 h-4" /> Tournament
+            <span className="absolute -top-2 -right-2 bg-[#ffc93c] text-[#261309] text-[8px] font-bold uppercase px-1 py-0.5 pixel-border">Soon</span>
+          </button>
+        </div>
 
         {/* Socials */}
         <div className="flex items-center gap-2.5 sm:gap-3">

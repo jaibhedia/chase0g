@@ -23,6 +23,8 @@ import 'dotenv/config';
 import { createServer } from 'node:http';
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 import { Server, type Socket } from 'socket.io';
 import { decideIntents, forgetRoom, getTranscript, type AgentSnapshot } from './agents/agentBrain';
 import { ogComputeEnabled, getOgClient, OG_MODEL } from './og/computeRouter';
@@ -38,7 +40,8 @@ interface LobbyPlayer {
   player_name: string;
   user_id: string;
   is_ready: boolean;
-  character_id: string;
+  /** Numeric character index (1-4) the client derives from the selected character. */
+  character_id: number;
   /** Live connection bookkeeping for reconnect + voice routing. */
   connected: boolean;
   socket_id: string;
@@ -97,15 +100,86 @@ function socketIdFor(room: Room, userId: string): string | null {
   return p ? p.socket_id : null;
 }
 
+/** True if `characterId` is already claimed by another player in the room. With 4
+ *  characters and 4 max players, every player can hold a distinct one. */
+function characterTaken(room: Room, characterId: unknown, exceptUserId?: string): boolean {
+  const cid = Number(characterId);
+  return room.players.some((p) => p.user_id !== exceptUserId && Number(p.character_id) === cid);
+}
+
+/** The player's preferred character if free, else the first unclaimed one (1-4). Used to
+ *  auto-resolve a duplicate pick at join time so a join never fails on a clash. */
+function resolveCharacter(room: Room, preferred: unknown): number {
+  const pref = Number(preferred) || 1;
+  if (!characterTaken(room, pref)) return pref;
+  for (let i = 1; i <= 4; i++) if (!characterTaken(room, i)) return i;
+  return pref;
+}
+
+// --- Abuse / DoS guards -----------------------------------------------------
+/** Hard cap on concurrent rooms — bounds the in-memory store against a create-spam
+ *  memory-exhaustion DoS. */
+const MAX_ROOMS = 1000;
+const ROOM_CODE_RE = /^[A-Z0-9]{6}$/;
+
+/** Clamp an untrusted string to a max length (drops payload-bloat griefing). */
+function cleanStr(v: unknown, max: number): string {
+  return typeof v === 'string' ? v.slice(0, max) : '';
+}
+/** Finite number clamped to a sane range (drops NaN/Infinity/absurd coordinates). */
+function cleanNum(v: unknown, min: number, max: number): number {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 0;
+  return Math.min(max, Math.max(min, n));
+}
+
+/** True only if this socket is a live member of a real `roomCode` — the core guard that
+ *  stops a client spoofing/griefing a room it never joined. */
+function isRoomMember(socket: Socket<any, any, any, SocketData>, roomCode: unknown): roomCode is string {
+  if (typeof roomCode !== 'string' || !ROOM_CODE_RE.test(roomCode)) return false;
+  if (socket.data.roomCode !== roomCode) return false;
+  const room = rooms.get(roomCode);
+  return !!room && room.players.some((p) => p.user_id === socket.data.userId);
+}
+
+/** Membership guard that also allows a single-player `solo-<userId>` room (which has no
+ *  Socket.IO fan-out, so it can't reach anyone else). Used by relay handlers that both
+ *  single-player and multiplayer emit (agent-tick, store-replay, game-finished). */
+function canUseRoom(socket: Socket<any, any, any, SocketData>, roomCode: unknown): roomCode is string {
+  if (typeof roomCode === 'string' && roomCode.startsWith('solo-')) return true;
+  return isRoomMember(socket, roomCode);
+}
+
+/** Sliding-window per-socket rate limiter (keyed by socket id + action) — throttles room
+ *  create/join floods. Entries are cleared on disconnect. */
+const recentActions = new Map<string, number[]>();
+function rateOk(key: string, max: number, windowMs: number): boolean {
+  const now = Date.now();
+  const arr = (recentActions.get(key) || []).filter((t) => now - t < windowMs);
+  if (arr.length >= max) { recentActions.set(key, arr); return false; }
+  arr.push(now);
+  recentActions.set(key, arr);
+  return true;
+}
+
 // Allowed origins: comma-separated CORS_ORIGIN (e.g. "https://chase.example.com") in
 // production; defaults to `true` (reflect any origin) for local dev / quick demos.
 const corsOrigin: boolean | string[] = process.env.CORS_ORIGIN
   ? process.env.CORS_ORIGIN.split(',').map((o) => o.trim()).filter(Boolean)
   : true;
 
+// In production, reflecting any origin is a real risk — make the misconfig loud.
+if (process.env.NODE_ENV === 'production' && corsOrigin === true) {
+  console.warn('[security] CORS_ORIGIN is unset in production — reflecting ANY origin. Set CORS_ORIGIN to your site(s).');
+}
+
 // --- Express app (health checks + future REST endpoints) ---
 const app = express();
+app.disable('x-powered-by');
+app.use(helmet());
 app.use(cors({ origin: corsOrigin, credentials: true }));
+// Basic abuse guard on the HTTP routes (the socket has its own per-action limiter).
+app.use(rateLimit({ windowMs: 60_000, max: 120, standardHeaders: true, legacyHeaders: false }));
 app.get('/', (_req, res) => {
   res.type('text/plain').send('chase socket ok');
 });
@@ -135,6 +209,9 @@ const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: { origin: corsOrigin, methods: ['GET', 'POST'], credentials: true },
   transports: ['websocket', 'polling'],
+  // Game/lobby payloads are tiny; cap the frame size to mitigate the socket.io
+  // unbounded-binary-attachment advisory + memory-exhaustion via giant frames.
+  maxHttpBufferSize: 1e5, // 100 KB
 });
 
 interface SocketData {
@@ -147,13 +224,25 @@ io.on('connection', (socket: Socket<any, any, any, SocketData>) => {
   socket.data.roomCode = null;
 
   socket.on('create-room', (data: any) => {
+    if (rooms.size >= MAX_ROOMS) {
+      socket.emit('error', { message: 'Server is at capacity, try again shortly.' });
+      return;
+    }
+    if (!rateOk(`${socket.id}:create`, 10, 60_000)) {
+      socket.emit('error', { message: 'Slow down — too many rooms created.' });
+      return;
+    }
+    if (typeof data?.userId !== 'string' || !data.userId) {
+      socket.emit('error', { message: 'Invalid session.' });
+      return;
+    }
     const roomCode = genRoomCode();
     const player: LobbyPlayer = {
       id: `p-${socket.id.slice(0, 8)}`,
-      player_name: data.playerName || 'Host',
+      player_name: cleanStr(data.playerName, 24) || 'Host',
       user_id: data.userId,
       is_ready: false,
-      character_id: data.characterId,
+      character_id: cleanNum(data.characterId, 1, 4) || 1,
       connected: true,
       socket_id: socket.id,
     };
@@ -178,6 +267,14 @@ io.on('connection', (socket: Socket<any, any, any, SocketData>) => {
   });
 
   socket.on('join-room', (data: any) => {
+    if (!rateOk(`${socket.id}:join`, 30, 60_000)) {
+      socket.emit('error', { message: 'Slow down — too many join attempts.' });
+      return;
+    }
+    if (typeof data?.userId !== 'string' || !data.userId || typeof data?.roomCode !== 'string') {
+      socket.emit('error', { message: 'Invalid join request.' });
+      return;
+    }
     const room = rooms.get(data.roomCode);
     if (!room) {
       socket.emit('error', { message: 'Room not found' });
@@ -195,12 +292,14 @@ io.on('connection', (socket: Socket<any, any, any, SocketData>) => {
         socket.emit('error', { message: 'Room full' });
         return;
       }
+      // Auto-resolve a duplicate character pick to the first free one so the join
+      // never fails on a clash; the lobby picker lets them swap afterwards.
       room.players.push({
         id: `p-${socket.id.slice(0, 8)}`,
-        player_name: data.playerName || 'Player',
+        player_name: cleanStr(data.playerName, 24) || 'Player',
         user_id: data.userId,
         is_ready: false,
-        character_id: data.characterId,
+        character_id: resolveCharacter(room, data.characterId),
         connected: true,
         socket_id: socket.id,
       });
@@ -281,6 +380,34 @@ io.on('connection', (socket: Socket<any, any, any, SocketData>) => {
     });
   });
 
+  // Lobby character swap. The server is the single source of truth for who holds which
+  // character: reject if another player already claimed it (race), else apply + broadcast.
+  socket.on('set-character', ({ roomCode, userId, characterId, playerName }: { roomCode?: string; userId?: string; characterId: number; playerName?: string }) => {
+    const rc = roomCode || socket.data.roomCode;
+    if (!rc) return;
+    const room = rooms.get(rc);
+    if (!room || room.started) return; // locked once the match begins
+    const uid = userId || socket.data.userId;
+    if (!uid) return;
+    const p = room.players.find((x) => x.user_id === uid);
+    if (!p) return;
+    if (characterTaken(room, characterId, uid)) {
+      socket.emit('character-taken', { characterId: Number(characterId) });
+      return;
+    }
+    p.character_id = Number(characterId);
+    if (playerName) p.player_name = playerName; // name mirrors the character
+    socket.data.roomCode = rc;
+    socket.data.userId = uid;
+    socket.join(rc);
+    io.to(rc).emit('room-update', {
+      room: { map_id: room.mapId },
+      players: publicPlayers(room),
+      readyPlayers: room.players.filter((x) => x.is_ready).length,
+    });
+    io.to(rc).emit('player-joined', { players: publicPlayers(room), currentPlayers: room.players.length });
+  });
+
   socket.on('start-game', () => {
     const rc = socket.data.roomCode;
     if (!rc) return;
@@ -327,18 +454,31 @@ io.on('connection', (socket: Socket<any, any, any, SocketData>) => {
   });
 
   socket.on('game-state-update', (payload: any) => {
-    if (payload?.roomCode) socket.to(payload.roomCode).emit('game-state-update', payload);
+    if (!isRoomMember(socket, payload?.roomCode)) return;
+    socket.to(payload.roomCode).emit('game-state-update', payload);
   });
 
   socket.on('player-input', (payload: any) => {
-    if (payload?.roomCode) socket.to(payload.roomCode).emit('player-input', payload);
+    // Membership-gated + re-built from sanitized fields so a peer can't inject junk.
+    if (!isRoomMember(socket, payload?.roomCode)) return;
+    socket.to(payload.roomCode).emit('player-input', {
+      roomCode: payload.roomCode,
+      userId: cleanStr(payload.userId, 64),
+      x: cleanNum(payload.x, -1e5, 1e5),
+      y: cleanNum(payload.y, -1e5, 1e5),
+      vx: cleanNum(payload.vx, -1e5, 1e5),
+      vy: cleanNum(payload.vy, -1e5, 1e5),
+      hasEgg: !!payload.hasEgg,
+      isInvincible: !!payload.isInvincible,
+    });
   });
 
   // Fill-agent positions, broadcast by the room's agent-authority client so the other
   // clients can render the 0G agents that are filling empty seats. Pure relay, like
   // player-input — the authority is the single source of truth for bot movement.
   socket.on('agent-state', (payload: any) => {
-    if (payload?.roomCode) socket.to(payload.roomCode).emit('agent-state', payload);
+    if (!isRoomMember(socket, payload?.roomCode)) return;
+    socket.to(payload.roomCode).emit('agent-state', payload);
   });
 
   /**
@@ -351,7 +491,7 @@ io.on('connection', (socket: Socket<any, any, any, SocketData>) => {
    */
   socket.on('agent-tick', async (snap: AgentSnapshot) => {
     const rc = snap?.roomCode || socket.data.roomCode;
-    if (!rc) return;
+    if (!canUseRoom(socket, rc)) return;
     if (agentTickInFlight.has(rc)) return;
     agentTickInFlight.add(rc);
     try {
@@ -376,11 +516,13 @@ io.on('connection', (socket: Socket<any, any, any, SocketData>) => {
   // Authoritative egg ownership: whichever client made the new holder broadcasts the
   // egg state; everyone else mirrors it (destroys/respawns the ground egg + tints).
   socket.on('egg-state', (payload: any) => {
-    if (payload?.roomCode) socket.to(payload.roomCode).emit('egg-state', payload);
+    if (!isRoomMember(socket, payload?.roomCode)) return;
+    socket.to(payload.roomCode).emit('egg-state', payload);
   });
 
   socket.on('game-finished', (payload: any) => {
-    if (payload?.roomCode) io.to(payload.roomCode).emit('game-finished', payload);
+    if (!canUseRoom(socket, payload?.roomCode)) return;
+    io.to(payload.roomCode).emit('game-finished', payload);
   });
 
   /**
@@ -392,7 +534,7 @@ io.on('connection', (socket: Socket<any, any, any, SocketData>) => {
    */
   socket.on('store-replay', async (payload: { roomCode?: string; result?: any }) => {
     const rc = payload?.roomCode || socket.data.roomCode;
-    if (!rc) return;
+    if (!canUseRoom(socket, rc)) return;
 
     const reply = (r: StoredReplay) => {
       socket.emit('replay-stored', r);
@@ -420,13 +562,16 @@ io.on('connection', (socket: Socket<any, any, any, SocketData>) => {
       const uploaded = ogStorageEnabled ? await uploadReplay(bundle) : null;
       if (uploaded) console.log(`[0G Storage] replay stored room=${rc} root=${uploaded.rootHash} decisions=${transcript.length}`);
 
-      // Phase 3 — post the result on-chain, linked to the replay's storage root hash.
+      // Phase 3 — post the result on-chain. Decoupled from Storage: the leaderboard
+      // records the winner even when the replay upload failed (Storage testnet flake),
+      // just with an empty rootHash for that row. Storage success links the row to its
+      // verifiable replay; either way the deployed leaderboard stays populated.
       let chainTxHash: string | null = null;
-      if (uploaded?.rootHash && ogChainEnabled) {
+      if (ogChainEnabled) {
         const w = payload?.result?.winner;
-        const posted = await submitMatch(String(w?.name ?? 'Unknown'), Number(w?.eggHoldCount ?? 0), uploaded.rootHash);
+        const posted = await submitMatch(String(w?.name ?? 'Unknown'), Number(w?.eggHoldCount ?? 0), uploaded?.rootHash ?? '');
         chainTxHash = posted?.txHash ?? null;
-        if (posted) console.log(`[0G Chain] leaderboard updated room=${rc} tx=${posted.txHash}`);
+        if (posted) console.log(`[0G Chain] leaderboard updated room=${rc} tx=${posted.txHash}${uploaded?.rootHash ? '' : ' (no replay hash — Storage unavailable)'}`);
       }
 
       const result: StoredReplay = {
@@ -437,7 +582,9 @@ io.on('connection', (socket: Socket<any, any, any, SocketData>) => {
         ogStorageEnabled,
         ogChainEnabled,
       };
-      if (uploaded) replayResults.set(rc, result); // only cache a real success
+      // Cache once we have a durable artifact (a stored replay OR an on-chain row) so we
+      // don't re-submit for the same room.
+      if (uploaded || chainTxHash) replayResults.set(rc, result);
       reply(result);
     } catch (err) {
       console.warn('[0G Storage] store-replay error:', (err as Error).message);
@@ -508,6 +655,8 @@ io.on('connection', (socket: Socket<any, any, any, SocketData>) => {
   });
 
   socket.on('disconnect', () => {
+    recentActions.delete(`${socket.id}:create`);
+    recentActions.delete(`${socket.id}:join`);
     const rc = socket.data.roomCode;
     const uid = socket.data.userId;
     if (!rc || !uid) return;
@@ -545,6 +694,16 @@ io.on('connection', (socket: Socket<any, any, any, SocketData>) => {
       }, RECONNECT_GRACE_MS),
     );
   });
+});
+
+// Fail clean on a busy port (a leftover dev instance) instead of dumping an unhandled
+// 'error' event stack trace. The tsx watcher restarts; one clear line is enough.
+httpServer.on('error', (err: NodeJS.ErrnoException) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`[chase-server] Port ${PORT} is already in use — another instance is running. Free it with: npx kill-port ${PORT}`);
+    process.exit(1);
+  }
+  throw err;
 });
 
 httpServer.listen(PORT, () => {

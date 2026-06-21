@@ -17,6 +17,10 @@ export interface PowerUp {
 
 export type CharacterSpriteId = 'doux' | 'mort' | 'tard' | 'vita';
 
+/** Asset-store cosmetic categories. Mechanics live here; the store UI is gated
+ *  "Coming Soon" so nothing is actually purchasable yet. */
+export type CosmeticType = 'skin' | 'trail' | 'taunt' | 'emote';
+
 export interface Character {
   id: string;
   name: string;
@@ -110,6 +114,11 @@ interface GameState {
   /** Host waited alone; game runs as MP UI with local bots (no copy in UI). */
   multiplayerHiddenFill: boolean;
 
+  // Cosmetics / asset store — mechanics only; purchases are gated "Coming Soon".
+  coins: number;
+  ownedCosmetics: string[];
+  equippedCosmetics: Partial<Record<CosmeticType, string>>;
+
   // Actions
   setUserId: (id: string | null) => void;
   /** Load existing guest id from localStorage, or mint a new one. Idempotent. */
@@ -132,6 +141,12 @@ interface GameState {
   lockCharacter: (characterId: string) => void;
   unlockCharacter: (characterId: string) => void;
   clearLockedCharacters: () => void;
+  /** Load persisted coins / owned / equipped cosmetics from localStorage. Idempotent. */
+  initCosmetics: () => void;
+  addCoins: (n: number) => void;
+  /** Spend coins to own a cosmetic. Returns false if already owned or short on coins. */
+  purchaseCosmetic: (id: string, price: number) => boolean;
+  equipCosmetic: (id: string, type: CosmeticType) => void;
   resetGame: () => void;
 }
 
@@ -154,7 +169,14 @@ const initialState = {
   roomPlayers: [],
   roomCode: null,
   multiplayerHiddenFill: false,
+  coins: 0,
+  ownedCosmetics: [] as string[],
+  equippedCosmetics: {} as Partial<Record<CosmeticType, string>>,
 };
+
+const COINS_KEY = 'chaseCoins';
+const OWNED_KEY = 'chaseOwnedCosmetics';
+const EQUIP_KEY = 'chaseEquipped';
 
 export const useGameStore = create<GameState>((set, get) => ({
   ...initialState,
@@ -202,5 +224,55 @@ export const useGameStore = create<GameState>((set, get) => ({
       lockedCharacters: state.lockedCharacters.filter((id) => id !== characterId),
     })),
   clearLockedCharacters: () => set({ lockedCharacters: [] }),
-  resetGame: () => set({ ...initialState, userId: get().userId }),
+
+  initCosmetics: () => {
+    if (typeof window === 'undefined') return;
+    try {
+      const coins = Number(window.localStorage.getItem(COINS_KEY) ?? '0') || 0;
+      const owned = JSON.parse(window.localStorage.getItem(OWNED_KEY) ?? '[]');
+      const equipped = JSON.parse(window.localStorage.getItem(EQUIP_KEY) ?? '{}');
+      set({
+        coins,
+        ownedCosmetics: Array.isArray(owned) ? owned : [],
+        equippedCosmetics: equipped && typeof equipped === 'object' ? equipped : {},
+      });
+    } catch {
+      /* corrupt storage — keep defaults */
+    }
+  },
+  addCoins: (n) =>
+    set((s) => {
+      const coins = Math.max(0, s.coins + n);
+      if (typeof window !== 'undefined') window.localStorage.setItem(COINS_KEY, String(coins));
+      return { coins };
+    }),
+  purchaseCosmetic: (id, price) => {
+    const s = get();
+    if (s.ownedCosmetics.includes(id)) return true;
+    if (s.coins < price) return false;
+    const coins = s.coins - price;
+    const ownedCosmetics = [...s.ownedCosmetics, id];
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(COINS_KEY, String(coins));
+      window.localStorage.setItem(OWNED_KEY, JSON.stringify(ownedCosmetics));
+    }
+    set({ coins, ownedCosmetics });
+    return true;
+  },
+  equipCosmetic: (id, type) =>
+    set((s) => {
+      const equippedCosmetics = { ...s.equippedCosmetics, [type]: id };
+      if (typeof window !== 'undefined') window.localStorage.setItem(EQUIP_KEY, JSON.stringify(equippedCosmetics));
+      return { equippedCosmetics };
+    }),
+
+  // Keep cosmetics (coins/owned/equipped) across a game reset — they're account-level.
+  resetGame: () =>
+    set({
+      ...initialState,
+      userId: get().userId,
+      coins: get().coins,
+      ownedCosmetics: get().ownedCosmetics,
+      equippedCosmetics: get().equippedCosmetics,
+    }),
 }));

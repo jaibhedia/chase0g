@@ -166,6 +166,10 @@ export class GameScene extends Phaser.Scene {
   private countdownTimer = 3;
   private gameTimer = GAME_DURATION;
   private phaseAccum = 0;
+  /** Last whole-second of the server clock we snapshotted on (MP wall-clock path). */
+  private lastClockSec = -1;
+  /** Guards endGame() against being fired twice once the server clock hits zero. */
+  private matchEnded = false;
 
   private playerSprites: { [id: string]: Phaser.GameObjects.Container } = {};
   private objSprites: { [id: string]: Phaser.GameObjects.Container } = {};
@@ -528,26 +532,35 @@ export class GameScene extends Phaser.Scene {
     // The in-game menu freezes the simulation; sprites below still render so the
     // frozen world stays visible behind the overlay.
     if (!store.paused) {
-      this.phaseAccum += dt;
-      if (this.phaseAccum >= 1) {
-        this.phaseAccum = 0;
-        if (this.currentPhase === 'countdown') {
-          this.countdownTimer--;
-          store.setCountdownTimer(this.countdownTimer);
-          if (this.countdownTimer <= 0) {
-            this.currentPhase = 'playing';
-            store.setGamePhase('playing');
+      // Multiplayer: drive the countdown + match timer from the SHARED server wall-clock,
+      // not from accumulated (frame-rate-clamped) dt. Frame-rate-driven timing made any
+      // client below 30 FPS run the whole match in slow-motion ("stuck in countdown") and
+      // drift out of sync with the host. Wall-clock = real speed + identical on every client.
+      if (this.gameMode === 'multiplayer' && this.serverStartTime != null) {
+        this.advanceServerClock(store);
+        if (this.matchEnded) return;
+      } else {
+        this.phaseAccum += dt;
+        if (this.phaseAccum >= 1) {
+          this.phaseAccum = 0;
+          if (this.currentPhase === 'countdown') {
+            this.countdownTimer--;
+            store.setCountdownTimer(this.countdownTimer);
+            if (this.countdownTimer <= 0) {
+              this.currentPhase = 'playing';
+              store.setGamePhase('playing');
+            }
+          } else if (this.currentPhase === 'playing') {
+            this.gameTimer--;
+            store.setTimeRemaining(this.gameTimer);
+            if (this.gameTimer <= 0) {
+              this.endGame();
+              return;
+            }
           }
-        } else if (this.currentPhase === 'playing') {
-          this.gameTimer--;
-          store.setTimeRemaining(this.gameTimer);
-          if (this.gameTimer <= 0) {
-            this.endGame();
-            return;
-          }
+          // Snapshot live state once a second so a refresh resumes mid-match.
+          this.saveSnapshot();
         }
-        // Snapshot live state once a second so a refresh resumes mid-match.
-        this.saveSnapshot();
       }
 
       if (this.currentPhase === 'playing') {
@@ -1618,23 +1631,15 @@ export class GameScene extends Phaser.Scene {
     for (const sp of storePlayers) {
       const existing = existingById.get(sp.id);
       if (existing) {
-        // The local player is always client-authoritative; fill-agents are scene-
-        // authoritative on the client that STEERS them (updateBots mutates the scene
-        // copy, not the store). In both cases keep the live scene x/y so a stale store
-        // value can't tug them backward; only merge non-positional fields.
-        if (sp.id === 'player' || (existing.isBot && this.agentAuthority)) {
-          Object.assign(existing, {
-            ...sp,
-            x: existing.x,
-            y: existing.y,
-            character: sp.character || existing.character,
-          });
-        } else {
-          Object.assign(existing, {
-            ...sp,
-            character: sp.character || existing.character,
-          });
-        }
+        // The SCENE is authoritative for every live gameplay field: the local player by
+        // input, fill-agents by updateBots on the authority, and remote players/agents by
+        // the network handlers — all of which write gsPlayers directly. The store is only a
+        // downstream mirror for React. Never feed it back onto the scene, or its stale ~1Hz
+        // values clobber live state (powerUpCooldown / powerUpActive / speedBoostActive /
+        // isInvincible / x / y) — which is exactly what made MP controls + power-ups feel
+        // laggy and "different" from single-player. Adopt ONLY the character (assigned by
+        // the lobby, which the scene may not have yet); keep everything else live.
+        if (sp.character) existing.character = sp.character;
         synced.push(existing);
       } else {
         const created: Player = {
@@ -1686,13 +1691,13 @@ export class GameScene extends Phaser.Scene {
           vy: typeof payload.vy === 'number' ? payload.vy : 0,
           t: this.time.now,
         };
-        useGameStore.getState().updatePlayer(id, {
-          x: payload.x,
-          y: payload.y,
-          ...(typeof payload.hasEgg === 'boolean' ? { hasEgg: payload.hasEgg } : {}),
-          // Relay shield state so a shielded holder can't be stolen from on other clients.
-          ...(typeof payload.isInvincible === 'boolean' ? { isInvincible: payload.isInvincible } : {}),
-        });
+        // Position feeds the SCENE directly (render dead-reckons from remoteNet; game
+        // logic reads gsPlayers) — never through the zustand store, which would re-render
+        // React on every 30Hz packet (the choppiness/lag the non-host client suffered).
+        const gp = this.gsPlayers.find((p) => p.id === id);
+        if (gp) { gp.x = payload.x; gp.y = payload.y; }
+        // Only DISCRETE state (egg/shield) goes to the store/React, and only on change.
+        this.applyRemoteFlags(id, gp, payload.hasEgg, payload.isInvincible);
       };
       socket.on('player-input', this.onRemoteInput);
       // Egg ownership broadcast by whichever client became the new holder.
@@ -1705,7 +1710,6 @@ export class GameScene extends Phaser.Scene {
       // them to the matching 'bot-<i>' (same dead-reckoning path as remote humans).
       this.onAgentState = (payload: any) => {
         if (!payload || !Array.isArray(payload.agents) || this.agentAuthority) return;
-        const store = useGameStore.getState();
         for (const a of payload.agents) {
           if (!a || typeof a.id !== 'string') continue;
           this.remoteNet[a.id] = {
@@ -1714,11 +1718,10 @@ export class GameScene extends Phaser.Scene {
             vy: typeof a.vy === 'number' ? a.vy : 0,
             t: this.time.now,
           };
-          store.updatePlayer(a.id, {
-            x: a.x, y: a.y,
-            ...(typeof a.hasEgg === 'boolean' ? { hasEgg: a.hasEgg } : {}),
-            ...(typeof a.isInvincible === 'boolean' ? { isInvincible: a.isInvincible } : {}),
-          });
+          // Same as remote humans: position straight to the scene, store only on flag change.
+          const gp = this.gsPlayers.find((p) => p.id === a.id);
+          if (gp) { gp.x = a.x; gp.y = a.y; }
+          this.applyRemoteFlags(a.id, gp, a.hasEgg, a.isInvincible);
         }
       };
       socket.on('agent-state', this.onAgentState);
@@ -1794,6 +1797,57 @@ export class GameScene extends Phaser.Scene {
           });
         }
       }
+    }
+  }
+
+  /**
+   * Push only DISCRETE remote state (egg/shield) to the store → React, and only when it
+   * actually flips. Positions never come through here (see onRemoteInput/onAgentState),
+   * so a remote player moving no longer re-renders the React tree 30×/sec.
+   */
+  private applyRemoteFlags(id: string, gp: Player | undefined, hasEgg: unknown, isInvincible: unknown) {
+    const patch: Partial<Player> = {};
+    if (typeof hasEgg === 'boolean' && gp && gp.hasEgg !== hasEgg) patch.hasEgg = hasEgg;
+    if (typeof isInvincible === 'boolean' && gp && gp.isInvincible !== isInvincible) patch.isInvincible = isInvincible;
+    if (Object.keys(patch).length === 0) return;
+    Object.assign(gp as Player, patch);
+    useGameStore.getState().updatePlayer(id, patch);
+  }
+
+  /**
+   * Multiplayer match clock, derived from the shared `serverStartTime` wall-clock so it
+   * advances at REAL speed and reads identically on every client, independent of frame
+   * rate. (The old phaseAccum/dt path slowed the whole match on any client under 30 FPS.)
+   * Layout: first 3s = countdown, then GAME_DURATION seconds of play.
+   */
+  private advanceServerClock(store: ReturnType<typeof useGameStore.getState>) {
+    const start = this.serverStartTime as number;
+    const elapsed = (Date.now() - start) / 1000;
+
+    // Snapshot ~once per second for refresh-resume (mirrors the single-player path).
+    const sec = Math.floor(elapsed);
+    if (sec !== this.lastClockSec) { this.lastClockSec = sec; this.saveSnapshot(); }
+
+    if (elapsed < 3) {
+      this.currentPhase = 'countdown';
+      const cd = Math.max(1, Math.ceil(3 - elapsed));
+      if (cd !== this.countdownTimer) { this.countdownTimer = cd; store.setCountdownTimer(cd); }
+      return;
+    }
+
+    // Countdown just finished — flip to play exactly once.
+    if (this.currentPhase === 'countdown') {
+      this.currentPhase = 'playing';
+      this.countdownTimer = 0;
+      store.setCountdownTimer(0);
+      store.setGamePhase('playing');
+    }
+
+    const remaining = Math.max(0, Math.ceil(GAME_DURATION - (elapsed - 3)));
+    if (remaining !== this.gameTimer) { this.gameTimer = remaining; store.setTimeRemaining(remaining); }
+    if (remaining <= 0 && !this.matchEnded) {
+      this.matchEnded = true;
+      this.endGame();
     }
   }
 

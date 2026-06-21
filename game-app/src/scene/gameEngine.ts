@@ -59,6 +59,9 @@ export async function initializeGame(container: HTMLElement, serverStartTime?: n
         debug: false,
       },
     },
+    // Cap the simulation at 60Hz on the rAF clock (no setTimeout fallback) so the
+    // physics step doesn't spiral on slow frames.
+    fps: { target: 60, forceSetTimeOut: false },
     scene: [GameScene],
     input: {
       keyboard: true,
@@ -68,6 +71,8 @@ export async function initializeGame(container: HTMLElement, serverStartTime?: n
       antialias: false,
       pixelArt: true,
       roundPixels: true,
+      // Ask the browser for the discrete GPU — meaningful FPS win on hybrid-GPU laptops.
+      powerPreference: 'high-performance',
     },
   };
 

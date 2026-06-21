@@ -5,21 +5,33 @@ import { useGameStore } from '@/store/gameStore';
  * (fed ~12Hz by the scene) so it re-renders independently of the rest of the HUD.
  * DOM/SVG — always on top of the canvas, no Phaser camera-zoom math.
  */
-export function Minimap() {
+export function Minimap({ isMobile = false }: { isMobile?: boolean }) {
   const minimap = useGameStore((s) => s.minimap);
   const gameObjects = useGameStore((s) => s.gameObjects);
   if (!minimap.w || !minimap.h || minimap.dots.length === 0) return null;
 
-  const W = 196;
-  const H = Math.round(Math.min(150, Math.max(96, W * (minimap.h / minimap.w))));
+  // Compact on touch so it tucks into the top-right and never collides with the joystick
+  // (bottom-right) or the power-up button (bottom-left).
+  const W = isMobile ? 96 : 196;
+  const H = isMobile
+    ? Math.max(54, Math.round(W * (minimap.h / minimap.w)))
+    : Math.round(Math.min(150, Math.max(96, W * (minimap.h / minimap.w))));
   const sx = W / minimap.w;
   const sy = H / minimap.h;
 
+  // Desktop: full size, bottom-right. Touch: compact, top-right (below the menu + voice
+  // buttons), out of both thumb zones.
+  const wrapCls = isMobile
+    ? 'pointer-events-none fixed top-32 right-2 z-[54] px-panel p-1'
+    : 'pointer-events-none fixed bottom-6 right-6 z-[55] px-panel p-2';
+
   return (
-    <div className="pointer-events-none fixed bottom-6 right-6 z-[55] px-panel p-2">
-      <div className="mb-1 flex items-center gap-1.5">
-        <span className="px-heading text-[8px] uppercase tracking-[0.2em] text-[#9fb0d8]">Map</span>
-      </div>
+    <div className={wrapCls}>
+      {!isMobile && (
+        <div className="mb-1 flex items-center gap-1.5">
+          <span className="px-heading text-[8px] uppercase tracking-[0.2em] text-[#9fb0d8]">Map</span>
+        </div>
+      )}
       <svg
         width={W}
         height={H}

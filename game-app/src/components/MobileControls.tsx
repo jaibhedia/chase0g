@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { useGameStore } from '@/store/gameStore';
 import { PowerUpHudCluster } from '@/components/PowerUpHudCluster';
+import { useIsTouchDevice } from '@/hooks/useIsTouchDevice';
 
 interface MobileControlsProps {
   onDirectionChange: (direction: { x: number; y: number }) => void;
@@ -24,32 +25,11 @@ export default function MobileControls({
   const [joystickPosition, setJoystickPosition] = useState({ x: 0, y: 0 });
   const [isTouching, setIsTouching] = useState(false);
   const touchIdRef = useRef<number | null>(null);
-  const [showControls, setShowControls] = useState(false);
+  // Shared detection — identical to GameHUD, so controls + HUD never disagree.
+  const showControls = useIsTouchDevice();
   const selectedCharacter = useGameStore((s) => s.selectedCharacter);
   const cooldownMax = powerUpCooldownMax ?? selectedCharacter?.powerUp?.cooldown ?? 15000;
   const activeDuration = selectedCharacter?.powerUp?.duration ?? 3000;
-
-  useEffect(() => {
-    // Touch controls (joystick + power-up button) are for phones AND tablets — any
-    // device whose PRIMARY pointer is coarse (touch). Desktops/laptops report a fine
-    // pointer (mouse/trackpad) and keep keyboard + click controls instead.
-    const checkTouchDevice = () => {
-      const coarse = window.matchMedia?.('(pointer: coarse)').matches ?? false;
-      const hasTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints ?? 0) > 0;
-      setShowControls(coarse && hasTouch);
-    };
-
-    checkTouchDevice();
-    window.addEventListener('resize', checkTouchDevice);
-    window.addEventListener('orientationchange', checkTouchDevice);
-    const mq = window.matchMedia?.('(pointer: coarse)');
-    mq?.addEventListener?.('change', checkTouchDevice);
-    return () => {
-      window.removeEventListener('resize', checkTouchDevice);
-      window.removeEventListener('orientationchange', checkTouchDevice);
-      mq?.removeEventListener?.('change', checkTouchDevice);
-    };
-  }, []);
 
   useEffect(() => {
     const handleTouchStart = (e: TouchEvent) => {
@@ -129,8 +109,14 @@ export default function MobileControls({
 
   return (
     <div className="fixed inset-0 pointer-events-none z-[60]">
-      {/* Power-up button — bottom-left, thumb-reachable. */}
-      <div className="absolute bottom-4 left-4 sm:bottom-6 sm:left-6 pointer-events-auto flex items-center">
+      {/* Power-up button — bottom-left, thumb-reachable, clear of the home indicator. */}
+      <div
+        className="absolute pointer-events-auto flex items-center"
+        style={{
+          bottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.75rem)',
+          left: 'calc(env(safe-area-inset-left, 0px) + 0.75rem)',
+        }}
+      >
         <PowerUpHudCluster
           powerUpReady={powerUpReady}
           powerUpActive={powerUpActive}
@@ -142,15 +128,22 @@ export default function MobileControls({
         />
       </div>
 
-      {/* Proper twin-stick style joystick — themed to match the pixel UI. */}
-      <div className="absolute bottom-4 right-4 sm:bottom-6 sm:right-6 pointer-events-auto flex flex-col items-center gap-1.5">
+      {/* Twin-stick style joystick — pixel-themed (sharp corners per brand, no blur/gradient).
+          Responsive: smaller on phones, larger on tablets/iPads. */}
+      <div
+        className="absolute pointer-events-auto flex flex-col items-center gap-1.5"
+        style={{
+          bottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.75rem)',
+          right: 'calc(env(safe-area-inset-right, 0px) + 0.75rem)',
+        }}
+      >
         <div
           ref={joystickRef}
-          className="relative w-36 h-36 sm:w-40 sm:h-40 rounded-full overflow-hidden border-[3px] border-[#11111c] bg-[#1a160f]/75 backdrop-blur-md shadow-[0_4px_0_rgba(0,0,0,0.5),inset_0_0_22px_rgba(0,0,0,0.55)]"
+          className="relative w-32 h-32 sm:w-36 sm:h-36 md:w-44 md:h-44 overflow-hidden border-[3px] border-[#11111c] bg-[#1a160f] shadow-[0_4px_0_rgba(0,0,0,0.5),inset_0_0_22px_rgba(0,0,0,0.55)]"
         >
-          {/* Recessed track rings */}
-          <div className="absolute inset-2 rounded-full border-2 border-[#4d2813]" />
-          <div className="absolute inset-6 rounded-full border border-[#4d2813]/60" />
+          {/* Recessed track frames */}
+          <div className="absolute inset-2 border-2 border-[#4d2813]" />
+          <div className="absolute inset-6 border border-[#4d2813]/60" />
 
           {/* Direction hints */}
           <div className="absolute inset-0 pointer-events-none text-[#f4e7c3]/80">
@@ -160,18 +153,18 @@ export default function MobileControls({
             <span className="absolute top-1/2 -translate-y-1/2 right-1.5 text-base leading-none">▶</span>
           </div>
 
-          {/* Thumb knob */}
+          {/* Thumb knob — solid sun fill (no gradient), 64px so the centering offset holds. */}
           <motion.div
-            className="absolute left-1/2 top-1/2 w-16 h-16 rounded-full border-[3px] border-[#11111c] flex items-center justify-center shadow-[0_3px_0_rgba(0,0,0,0.5)]"
+            className="absolute left-1/2 top-1/2 w-16 h-16 border-[3px] border-[#11111c] flex items-center justify-center shadow-[0_3px_0_rgba(0,0,0,0.5)]"
             style={{
               x: joystickPosition.x - 32,
               y: joystickPosition.y - 32,
-              background: 'radial-gradient(circle at 35% 30%, #ffe08a, #c97b3c)',
+              background: '#ffc93c',
             }}
             animate={{ scale: isTouching ? 1.06 : 1 }}
             transition={{ type: 'spring', stiffness: 300, damping: 20 }}
           >
-            <div className="w-5 h-5 rounded-full bg-[#11111c]/30 border border-[#11111c]/50" />
+            <div className="w-5 h-5 bg-[#11111c]/30 border border-[#11111c]/50" />
           </motion.div>
         </div>
         <p className="px-heading text-[9px] tracking-widest uppercase text-[#f4e7c3]">Move</p>
