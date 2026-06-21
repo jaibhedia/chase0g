@@ -27,7 +27,7 @@ Maps to the other entry criteria: **#02** built with AI coding tools (vibe codin
 
 | Layer | 0G service | What it does (real work) | SDK / endpoint | Phase |
 |---|---|---|---|---|
-| **Agent brains** | **0G Compute** (Router) | LLM inference sets each agent's strategy + persona + live taunt | `openai` SDK → `https://router-api.0g.ai/v1` (key from pc.0g.ai) | **1 — JUN 23** |
+| **Agent brains** | **0G Compute** (Router) | LLM inference sets each agent's strategy + persona + live taunt | `openai` SDK → testnet router `https://router-api-testnet.integratenetwork.work/v1` (key from pc.testnet.0g.ai) | **1 — JUN 23** |
 | **Verifiable replays** | **0G Storage** | Uploads each match's result + the agents' full timestamped decision transcript; returns a content root hash shown as proof | `@0glabs/0g-ts-sdk`, indexer `https://indexer-storage-testnet-turbo.0g.ai` | 2 — JUN 28 |
 | **On-chain leaderboard** | **0G Chain** (Galileo) | Trustless tournament leaderboard; each entry links `{player, score, replayRootHash}` | EVM RPC `https://evmrpc-testnet.0g.ai`, `ChaseLeaderboard.sol` | 3 — JUL 4–8 |
 
@@ -43,7 +43,7 @@ LLM inference is too slow/costly for per-frame steering, so control is split:
 ```
 Phaser client (game-app)              Express server (server/)             0G Compute Router
  every ~3.5s: emit 'agent-tick' ─────► agentBrain.decideIntents(snapshot)
-  { roomCode, snapshot }               openai → router-api.0g.ai/v1  ──────► inference
+  { roomCode, snapshot }               openai → router-api-testnet…/v1 ──────► inference
                                        validate JSON intents  ◄──────────────  { intents }
  on 'agent-intents' ◄───────────────── io.to(room).emit('agent-intents')
  write bot.aiIntent; updateBots()
@@ -86,10 +86,11 @@ Only the **host client** (or the single-player client) emits `agent-tick`, so a 
 
 See `.env.example`. Server-side 0G vars: `OG_ROUTER_BASE_URL`, `OG_ROUTER_API_KEY`, `OG_MODEL`, `OG_AGENT_TICK_SECONDS` (Phase 1); `OG_EVM_RPC`, `OG_STORAGE_INDEXER`, `OG_PRIVATE_KEY`, `OG_LEADERBOARD_ADDRESS` (Phases 2–3).
 
-1. Get a Compute Router API key at [pc.0g.ai](https://pc.0g.ai) and deposit 0G tokens.
-2. Pick a chat model from the live catalog; set `OG_MODEL`.
-3. `cd server && npm i && npm run dev`; `cd game-app && npm i && npm run dev`; `npm i && npm run dev` (Next shell).
-4. Deploy: game embedded into the Next app (Vercel), socket+0G server on Render (existing `render.yaml`).
+1. **Testnet** — get a Compute Router API key at [pc.testnet.0g.ai](https://pc.testnet.0g.ai), deposit testnet 0G, and copy the FULL secret shown once on creation. Set `OG_ROUTER_BASE_URL=https://router-api-testnet.integratenetwork.work/v1`. (Mainnet equivalent: pc.0g.ai → `https://router-api.0g.ai/v1`.)
+2. Pick a chat model from the live catalog (e.g. `qwen2.5-omni`); set `OG_MODEL`.
+3. **Phases 2–3** — fund a Galileo testnet wallet (faucet via [docs.0g.ai](https://docs.0g.ai)); set `OG_PRIVATE_KEY`. Deploy the leaderboard: `cd contracts && npm i && npm run deploy`, then set `OG_LEADERBOARD_ADDRESS`.
+4. `cd server && npm i && npm run dev`; `cd game-app && npm i && npm run dev`; `npm i && npm run dev` (Next shell).
+5. Deploy: game embedded into the Next app (Vercel), socket+0G server on Render (existing `render.yaml`).
 
 ## 8. Demo plan & submission checklist
 
