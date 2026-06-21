@@ -313,6 +313,13 @@ io.on('connection', (socket: Socket<any, any, any, SocketData>) => {
     if (payload?.roomCode) socket.to(payload.roomCode).emit('player-input', payload);
   });
 
+  // Fill-agent positions, broadcast by the room's agent-authority client so the other
+  // clients can render the 0G agents that are filling empty seats. Pure relay, like
+  // player-input — the authority is the single source of truth for bot movement.
+  socket.on('agent-state', (payload: any) => {
+    if (payload?.roomCode) socket.to(payload.roomCode).emit('agent-state', payload);
+  });
+
   /**
    * Agent-brain tick (the AI-native core). One client per room — the host, or the
    * solo single-player client — sends a compact world snapshot every few seconds.

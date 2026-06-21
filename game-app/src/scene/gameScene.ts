@@ -123,6 +123,13 @@ export class GameScene extends Phaser.Scene {
   private remoteNet: Record<string, { x: number; y: number; vx: number; vy: number; t: number }> = {};
   private onRemoteInput?: (payload: any) => void;
   private onEggState?: (payload: any) => void;
+  /** Online-MP agent-fill: this client is the single authority that STEERS the
+   *  fill-agents and broadcasts their state. Computed deterministically (smallest
+   *  human user_id) so every client agrees on exactly one driver — no double spend,
+   *  no fighting over bot movement. Non-authority clients render them off the network. */
+  private agentAuthority = false;
+  private onAgentState?: (payload: any) => void;
+  private lastAgentStateSend = 0;
 
   // Window-level input handlers (bound in create, removed on shutdown). Window-level
   // — not canvas-scoped — so movement keeps working even when a HUD button has focus.
@@ -204,6 +211,22 @@ export class GameScene extends Phaser.Scene {
     this.roomCode = data.roomCode || null;
     this.localUserId = useGameStore.getState().userId || undefined;
     this.isOnlineMp = this.gameMode === 'multiplayer' && !useGameStore.getState().multiplayerHiddenFill;
+    this.agentAuthority = this.computeAgentAuthority();
+  }
+
+  /**
+   * Online-MP only: am I the one client that drives the fill-agents? Pick the
+   * connected human with the smallest user_id — a deterministic choice every client
+   * computes identically, so exactly one client steers the bots, emits the 0G
+   * agent-tick (no duplicate inference spend), and broadcasts agent positions. If
+   * the authority drops, the next-smallest naturally takes over on the next match.
+   * Single-player / hidden-fill don't use this (they always own their own bots).
+   */
+  private computeAgentAuthority(): boolean {
+    if (!this.isOnlineMp) return true;
+    const roster = useGameStore.getState().roomPlayers || [];
+    const ids = roster.map((p: any) => String(p.user_id)).filter(Boolean).sort();
+    return ids.length === 0 || ids[0] === String(this.localUserId);
   }
 
   create() {
@@ -333,7 +356,12 @@ export class GameScene extends Phaser.Scene {
       // where each player starts. Local user is 'player'; the rest are network-driven.
       const room = this.gameMode === 'multiplayer' ? (store.roomPlayers || []) : [];
       const ordered = [...room].sort((a: any, b: any) => String(a.user_id).localeCompare(String(b.user_id)));
-      const slots = Math.max(ordered.length, 1);
+      // Online-MP agent-fill: top up empty seats with 0G agents so a half-full room is
+      // still a full match. Reserve ring slots for them up front so humans + agents all
+      // get distinct, deterministic spawn points every client agrees on.
+      const FILL_TARGET = 4;
+      const fillCount = this.gameMode === 'multiplayer' ? Math.max(0, FILL_TARGET - ordered.length) : 0;
+      const slots = Math.max(ordered.length + fillCount, 1);
       const angleAt = (i: number) => (i / slots) * Math.PI * 2;
       const localIdx = ordered.findIndex((rp: any) => rp.user_id === humanUserId);
       const la = angleAt(localIdx >= 0 ? localIdx : 0);
@@ -372,6 +400,24 @@ export class GameScene extends Phaser.Scene {
             powerUpReady: false, powerUpActive: false, powerUpCooldown: 0, isInvincible: false, speedBoostActive: false
           });
         });
+
+        // 0G fill-agents for the empty seats. Deterministic id/character/spawn on every
+        // client; the authority steers them and broadcasts their state (see updateBots /
+        // updateMultiplayerNet), non-authority clients render them off the network.
+        if (fillCount > 0) {
+          const usedCharNums = new Set(ordered.map((rp: any) => Number(rp.character_id)));
+          const freeChars = characters
+            .filter((c) => !usedCharNums.has(Number(c.id.split('-')[1])))
+            .sort((a, b) => a.id.localeCompare(b.id));
+          for (let i = 0; i < fillCount && i < freeChars.length; i++) {
+            const bp = spawnAt(angleAt(ordered.length + i));
+            players.push({
+              id: `bot-${i}`, x: bp.x, y: bp.y, character: freeChars[i],
+              isBot: true, hasEgg: false, eggHoldCount: 0, userId: `agent_${i}`,
+              powerUpReady: false, powerUpActive: false, powerUpCooldown: 0, isInvincible: false, speedBoostActive: false
+            });
+          }
+        }
       }
     }
 
@@ -1568,10 +1614,11 @@ export class GameScene extends Phaser.Scene {
     for (const sp of storePlayers) {
       const existing = existingById.get(sp.id);
       if (existing) {
-        if (sp.id === 'player') {
-          // The local player is client-authoritative. Its store position is stale (we
-          // never write it back each frame), so DON'T let it tug the player around —
-          // keep the live scene x/y and only merge non-positional fields.
+        // The local player is always client-authoritative; fill-agents are scene-
+        // authoritative on the client that STEERS them (updateBots mutates the scene
+        // copy, not the store). In both cases keep the live scene x/y so a stale store
+        // value can't tug them backward; only merge non-positional fields.
+        if (sp.id === 'player' || (existing.isBot && this.agentAuthority)) {
           Object.assign(existing, {
             ...sp,
             x: existing.x,
@@ -1650,13 +1697,55 @@ export class GameScene extends Phaser.Scene {
         this.applyEggState(payload.ownerUserId ?? null, payload.x ?? 0, payload.y ?? 0);
       };
       socket.on('egg-state', this.onEggState);
+      // Fill-agent positions, broadcast by the authority. Non-authority clients apply
+      // them to the matching 'bot-<i>' (same dead-reckoning path as remote humans).
+      this.onAgentState = (payload: any) => {
+        if (!payload || !Array.isArray(payload.agents) || this.agentAuthority) return;
+        const store = useGameStore.getState();
+        for (const a of payload.agents) {
+          if (!a || typeof a.id !== 'string') continue;
+          this.remoteNet[a.id] = {
+            x: a.x, y: a.y,
+            vx: typeof a.vx === 'number' ? a.vx : 0,
+            vy: typeof a.vy === 'number' ? a.vy : 0,
+            t: this.time.now,
+          };
+          store.updatePlayer(a.id, {
+            x: a.x, y: a.y,
+            ...(typeof a.hasEgg === 'boolean' ? { hasEgg: a.hasEgg } : {}),
+            ...(typeof a.isInvincible === 'boolean' ? { isInvincible: a.isInvincible } : {}),
+          });
+        }
+      };
+      socket.on('agent-state', this.onAgentState);
       this.events.once('shutdown', () => {
         if (this.onRemoteInput) socket.off('player-input', this.onRemoteInput);
         if (this.onEggState) socket.off('egg-state', this.onEggState);
+        if (this.onAgentState) socket.off('agent-state', this.onAgentState);
         this.onRemoteInput = undefined;
         this.onEggState = undefined;
+        this.onAgentState = undefined;
         this.netBound = false;
       });
+    }
+
+    // Authority broadcasts the fill-agents' positions ~30Hz so other clients can render
+    // them. Cheap (≤3 bots, volatile) and only one client per room ever sends it.
+    if (this.agentAuthority && now - this.lastAgentStateSend >= 33) {
+      const bots = this.gsPlayers.filter((p) => p.isBot);
+      if (bots.length > 0 && this.roomCode) {
+        this.lastAgentStateSend = now;
+        socket.volatile.emit('agent-state', {
+          roomCode: this.roomCode,
+          agents: bots.map((b) => ({
+            id: b.id,
+            x: Math.round(b.x),
+            y: Math.round(b.y),
+            hasEgg: !!b.hasEgg,
+            isInvincible: !!b.isInvincible,
+          })),
+        });
+      }
     }
     if (now - this.lastNetSend >= 33) {
       this.lastNetSend = now;
@@ -1716,9 +1805,12 @@ export class GameScene extends Phaser.Scene {
    *  and destroy/respawn the ground egg to match. */
   private applyEggState(ownerUserId: string | null, x: number, y: number) {
     const store = useGameStore.getState();
+    // Resolve by userId so it works for humans ('player'/'mp-<id>') AND fill-agents
+    // ('bot-<i>', whose userId is 'agent_<i>'). Fall back to the mp- convention.
     const holderId = ownerUserId == null
       ? null
-      : (ownerUserId === this.localUserId ? 'player' : `mp-${ownerUserId}`);
+      : (this.gsPlayers.find((p) => p.userId === ownerUserId)?.id
+        ?? (ownerUserId === this.localUserId ? 'player' : `mp-${ownerUserId}`));
     for (const p of this.gsPlayers) {
       const should = p.id === holderId;
       if (!!p.hasEgg !== should) {
@@ -1881,6 +1973,11 @@ export class GameScene extends Phaser.Scene {
       });
     }
 
+    // The intents listener above is bound on EVERY client (so taunts + the 0G pill
+    // show for all), but only the authority EMITS the tick — one inference per room,
+    // no duplicate spend. In single-player/hidden-fill the authority is always us.
+    if (this.isOnlineMp && !this.agentAuthority) return;
+
     const store = useGameStore.getState();
     const holder = this.gsPlayers.find((p) => p.hasEgg);
     // Steady cadence only. (An egg-handoff event-tick was tried but it blew past the
@@ -1929,6 +2026,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   private updateBots(dt: number) {
+    // In online MP only the agent-authority steers the fill-agents; everyone else
+    // renders them off the broadcast (updateMultiplayerNet → agent-state). Single-
+    // player / hidden-fill always own their bots (agentAuthority defaults true there).
+    if (this.isOnlineMp && !this.agentAuthority) return;
     const eggHolder = this.gsPlayers.find(p => p.hasEgg);
     const eggPos = useGameStore.getState().eggPosition;
     this.gsPlayers.forEach(bot => {
@@ -2204,6 +2305,10 @@ export class GameScene extends Phaser.Scene {
     const store = useGameStore.getState();
     const now = Date.now();
     const tagDist = Math.max(TAG_DISTANCE, PLAYER_SIZE * 2.2);
+    // Authority also drives the fill-agents' egg interactions (run first; the shared
+    // grace/cooldown timers then gate the human flow this frame so the egg can't be
+    // double-claimed). Other clients just mirror the broadcast.
+    if (this.agentAuthority) this.updateBotTaggingMp(store, now, tagDist);
     const me = this.gsPlayers.find((p) => p.id === 'player');
     if (!me || me.isInvincible) return;
 
@@ -2247,6 +2352,63 @@ export class GameScene extends Phaser.Scene {
     this.rebuildPlayerSprite(me);
     audioManager.play('tag');
     this.broadcastEggState(this.localUserId ?? null);
+  }
+
+  /**
+   * Online-MP egg authority for the fill-agents (authority client only). Mirrors the
+   * human egg flow, but per bot: a bot grabs the loose egg or steals from a HUMAN
+   * holder on contact, and we broadcast the new ownership keyed by the bot's userId so
+   * every client mirrors it. Bots never steal from each other (no pointless churn); the
+   * shared grace/cooldown timers stop the egg ping-ponging between the two flows.
+   */
+  private updateBotTaggingMp(store: ReturnType<typeof useGameStore.getState>, now: number, tagDist: number) {
+    const bots = this.gsPlayers.filter((p) => p.isBot && !p.isInvincible);
+    if (bots.length === 0) return;
+
+    // PICKUP — loose egg; first of my bots within range grabs it.
+    if (!this.gsPlayers.some((p) => p.hasEgg)) {
+      const eggPos = store.eggPosition;
+      if (!eggPos) return;
+      for (const bot of bots) {
+        if (Math.hypot(bot.x - eggPos.x, bot.y - eggPos.y) <= tagDist) {
+          bot.hasEgg = true;
+          bot.eggHoldCount = (bot.eggHoldCount || 0) + 1;
+          store.updatePlayer(bot.id, { hasEgg: true, eggHoldCount: bot.eggHoldCount });
+          store.setEgg(bot.id, null);
+          store.setLastEggHolderId(bot.id);
+          this.destroyWorldEgg();
+          this.lastTagTime = now;
+          this.eggGraceUntil = now + EGG_GRACE_MS;
+          this.rebuildPlayerSprite(bot);
+          audioManager.play('tag');
+          this.broadcastEggState(bot.userId ?? null);
+          return;
+        }
+      }
+      return;
+    }
+
+    // TRANSFER — a HUMAN holds it; a bot of mine steals on contact.
+    if (now < this.eggGraceUntil || now - this.lastTagTime < TAG_COOLDOWN) return;
+    const holder = this.gsPlayers.find((p) => p.hasEgg);
+    if (!holder || holder.isInvincible || holder.isBot) return;
+    for (const bot of bots) {
+      if (Math.hypot(holder.x - bot.x, holder.y - bot.y) > tagDist) continue;
+      holder.hasEgg = false;
+      bot.hasEgg = true;
+      bot.eggHoldCount = (bot.eggHoldCount || 0) + 1;
+      store.updatePlayer(holder.id, { hasEgg: false });
+      store.updatePlayer(bot.id, { hasEgg: true, eggHoldCount: bot.eggHoldCount });
+      store.setEgg(bot.id, null);
+      store.setLastEggHolderId(bot.id);
+      this.lastTagTime = now;
+      this.eggGraceUntil = now + EGG_GRACE_MS;
+      this.rebuildPlayerSprite(holder);
+      this.rebuildPlayerSprite(bot);
+      audioManager.play('tag');
+      this.broadcastEggState(bot.userId ?? null);
+      return;
+    }
   }
 
   private updateTagging() {
