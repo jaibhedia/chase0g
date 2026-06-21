@@ -50,8 +50,11 @@ export interface ReplayInfo {
   done: boolean;
   rootHash: string | null;
   txHash: string | null;
+  /** 0G Chain tx that posted this match to the on-chain leaderboard (Phase 3). */
+  chainTxHash: string | null;
   transcriptLen: number;
   ogStorageEnabled: boolean;
+  ogChainEnabled: boolean;
 }
 
 /** One blip on the minimap. Fed from the scene at ~12Hz (throttled). */
@@ -197,7 +200,7 @@ const initialState = {
   paused: false,
   ogStatus: { live: false, source: 'fallback' as const },
   minimap: { w: 0, h: 0, dots: [] as MinimapDot[] },
-  replay: { storing: false, done: false, rootHash: null, txHash: null, transcriptLen: 0, ogStorageEnabled: false } as ReplayInfo,
+  replay: { storing: false, done: false, rootHash: null, txHash: null, chainTxHash: null, transcriptLen: 0, ogStorageEnabled: false, ogChainEnabled: false } as ReplayInfo,
 };
 
 export const useGameStore = create<GameState>((set, get) => ({

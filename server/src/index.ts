@@ -27,6 +27,7 @@ import { Server, type Socket } from 'socket.io';
 import { decideIntents, forgetRoom, getTranscript, type AgentSnapshot } from './agents/agentBrain';
 import { ogComputeEnabled, getOgClient, OG_MODEL } from './og/computeRouter';
 import { uploadReplay, ogStorageEnabled } from './og/storage';
+import { submitMatch, getRecent, ogChainEnabled, ogChainReadEnabled } from './og/chain';
 
 const PORT = Number(process.env.SOCKET_PORT || process.env.PORT || 3001);
 /** How long a disconnected player's slot is held open for them to come back. */
@@ -66,7 +67,7 @@ const agentTickInFlight = new Set<string>();
 /** Replay upload bookkeeping (Phase 2 / 0G Storage). Upload a given room's replay to
  *  0G Storage exactly once, then serve the cached {rootHash,txHash} to any later asker
  *  (each MP client emits store-replay independently when its match ends). */
-interface StoredReplay { rootHash: string | null; txHash: string | null; transcriptLen: number; ogStorageEnabled: boolean; }
+interface StoredReplay { rootHash: string | null; txHash: string | null; chainTxHash: string | null; transcriptLen: number; ogStorageEnabled: boolean; ogChainEnabled: boolean; }
 const replayResults = new Map<string, StoredReplay>();
 const replayInFlight = new Set<string>();
 
@@ -113,8 +114,20 @@ app.get('/health', (_req, res) => {
     ok: true,
     rooms: rooms.size,
     uptime: process.uptime(),
-    ai: { ogComputeEnabled, model: OG_MODEL || null, ogStorageEnabled },
+    ai: { ogComputeEnabled, model: OG_MODEL || null, ogStorageEnabled, ogChainEnabled, ogChainReadEnabled },
   });
+});
+
+// Phase 3 — the on-chain leaderboard, read from the ChaseLeaderboard contract. The
+// results screen fetches this to render a trustless leaderboard (each row links back to
+// its 0G Storage replay root hash). Empty when no contract address is configured.
+app.get('/leaderboard', async (_req, res) => {
+  try {
+    const rows = ogChainReadEnabled ? await getRecent(10) : [];
+    res.json({ enabled: ogChainReadEnabled, rows });
+  } catch (err) {
+    res.json({ enabled: ogChainReadEnabled, rows: [], error: (err as Error).message });
+  }
 });
 
 const httpServer = createServer(app);
@@ -405,18 +418,30 @@ io.on('connection', (socket: Socket<any, any, any, SocketData>) => {
         decisionCount: transcript.length,
       };
       const uploaded = ogStorageEnabled ? await uploadReplay(bundle) : null;
+      if (uploaded) console.log(`[0G Storage] replay stored room=${rc} root=${uploaded.rootHash} decisions=${transcript.length}`);
+
+      // Phase 3 — post the result on-chain, linked to the replay's storage root hash.
+      let chainTxHash: string | null = null;
+      if (uploaded?.rootHash && ogChainEnabled) {
+        const w = payload?.result?.winner;
+        const posted = await submitMatch(String(w?.name ?? 'Unknown'), Number(w?.eggHoldCount ?? 0), uploaded.rootHash);
+        chainTxHash = posted?.txHash ?? null;
+        if (posted) console.log(`[0G Chain] leaderboard updated room=${rc} tx=${posted.txHash}`);
+      }
+
       const result: StoredReplay = {
         rootHash: uploaded?.rootHash ?? null,
         txHash: uploaded?.txHash ?? null,
+        chainTxHash,
         transcriptLen: transcript.length,
         ogStorageEnabled,
+        ogChainEnabled,
       };
       if (uploaded) replayResults.set(rc, result); // only cache a real success
-      if (uploaded) console.log(`[0G Storage] replay stored room=${rc} root=${uploaded.rootHash} decisions=${transcript.length}`);
       reply(result);
     } catch (err) {
       console.warn('[0G Storage] store-replay error:', (err as Error).message);
-      socket.emit('replay-stored', { rootHash: null, txHash: null, transcriptLen: transcript.length, ogStorageEnabled });
+      socket.emit('replay-stored', { rootHash: null, txHash: null, chainTxHash: null, transcriptLen: transcript.length, ogStorageEnabled, ogChainEnabled });
     } finally {
       replayInFlight.delete(rc);
     }

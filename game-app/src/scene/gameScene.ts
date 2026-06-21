@@ -2904,8 +2904,10 @@ export class GameScene extends Phaser.Scene {
           done: true,
           rootHash: payload.rootHash ?? null,
           txHash: payload.txHash ?? null,
+          chainTxHash: payload.chainTxHash ?? null,
           transcriptLen: payload.transcriptLen ?? 0,
           ogStorageEnabled: !!payload.ogStorageEnabled,
+          ogChainEnabled: !!payload.ogChainEnabled,
         };
         useGameStore.getState().setReplay(info);
         // Persist for the (separate) results page, which is a fresh cross-origin load.
