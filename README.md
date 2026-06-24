@@ -171,4 +171,8 @@ chase/
 
 ## License
 
-MIT
+**Proprietary — © 2026 Shantanu Swami. All rights reserved.**
+
+This code is provided for review (e.g. hackathon judging) only. No permission is
+granted to use, copy, modify, distribute, or create derivative works without the
+author's prior written consent. See [`LICENSE`](LICENSE).

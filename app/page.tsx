@@ -33,7 +33,13 @@ export default function Home() {
 
       {/* Play Button - positioned at the bottom */}
       <div className="flex-1" />
-      <div className="relative z-10 flex flex-col items-center gap-2.5 sm:gap-4 px-4 pb-4 sm:pb-6 md:pb-10">
+      <div
+        className="relative z-10 flex flex-col items-center gap-2.5 sm:gap-4 px-4"
+        style={{
+          // Keep the footer/socials above the landscape home indicator on phones.
+          paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 1.25rem)',
+        }}
+      >
         <motion.div
           initial={{ scale: 0 }}
           animate={{ scale: 1 }}

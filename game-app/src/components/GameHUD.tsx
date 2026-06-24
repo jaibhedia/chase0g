@@ -45,7 +45,15 @@ export default function GameHUD() {
       )}
 
       <motion.div
-        className="fixed top-3 left-0 right-0 z-[55] px-3 sm:px-4 pointer-events-none"
+        className="fixed top-3 left-0 right-0 z-[55] pointer-events-none"
+        style={{
+          // Pad by the notch/safe-area insets (landscape) so the left chips clear the
+          // notch and the right menu clears the rounded corner. This also re-centers the
+          // absolutely-positioned "Time left" panel within the *visible* area, since it
+          // now centers on the padded content box rather than the full viewport.
+          paddingLeft: 'calc(env(safe-area-inset-left, 0px) + 0.75rem)',
+          paddingRight: 'calc(env(safe-area-inset-right, 0px) + 0.75rem)',
+        }}
         initial={{ opacity: 0, y: -12 }}
         animate={{ opacity: 1, y: 0 }}
       >

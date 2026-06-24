@@ -22,11 +22,16 @@ export function Minimap({ isMobile = false }: { isMobile?: boolean }) {
   // Desktop: full size, bottom-right. Touch: compact, top-right (below the menu + voice
   // buttons), out of both thumb zones.
   const wrapCls = isMobile
-    ? 'pointer-events-none fixed top-32 right-2 z-[54] px-panel p-1'
+    ? 'pointer-events-none fixed top-32 z-[54] px-panel p-1'
     : 'pointer-events-none fixed bottom-6 right-6 z-[55] px-panel p-2';
+  // Touch: offset from the right edge by the safe-area inset so the compact minimap
+  // clears the notch/rounded corner and stays aligned under the menu + voice buttons.
+  const wrapStyle = isMobile
+    ? { right: 'calc(env(safe-area-inset-right, 0px) + 0.5rem)' }
+    : undefined;
 
   return (
-    <div className={wrapCls}>
+    <div className={wrapCls} style={wrapStyle}>
       {!isMobile && (
         <div className="mb-1 flex items-center gap-1.5">
           <span className="px-heading text-[8px] uppercase tracking-[0.2em] text-[#9fb0d8]">Map</span>

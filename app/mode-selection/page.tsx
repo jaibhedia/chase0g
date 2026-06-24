@@ -28,7 +28,15 @@ export default function ModeSelection() {
   };
 
   return (
-    <main className="h-screen h-[100dvh] w-full flex flex-col overflow-y-auto px-solid-bg p-4 relative">
+    <main
+      className="h-screen h-[100dvh] w-full flex flex-col overflow-y-auto px-solid-bg py-4 relative"
+      style={{
+        // Landscape phones place the notch on one side — pad by the safe-area insets so
+        // the mode cards + back button never slide under the notch/rounded corner.
+        paddingLeft: 'calc(env(safe-area-inset-left, 0px) + 1rem)',
+        paddingRight: 'calc(env(safe-area-inset-right, 0px) + 1rem)',
+      }}
+    >
 
       <div className="w-full max-w-6xl mx-auto my-auto text-center space-y-4 md:space-y-8 p-2 md:p-4 relative z-10">
         <motion.div

@@ -71,7 +71,10 @@ export default function VoiceChat() {
   };
 
   return (
-    <div className="pointer-events-auto fixed top-16 right-2 z-[58] flex flex-col items-end gap-1.5 sm:top-20 sm:right-3 sm:gap-2">
+    <div
+      className="pointer-events-auto fixed top-16 z-[58] flex flex-col items-end gap-1.5 sm:top-20 sm:gap-2"
+      style={{ right: 'calc(env(safe-area-inset-right, 0px) + 0.5rem)' }}
+    >
       {!active ? (
         <button
           onClick={enable}
