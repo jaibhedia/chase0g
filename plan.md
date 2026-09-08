@@ -1,7 +1,26 @@
 # Chase — ETHOnline 2026 · FINAL PLAN (3 Tracks)
 
-**Submit: Sep 14** · **Today: Sep 8** · **6 days** · Solo
+## 🚨 **DEADLINE: Sunday Sep 13, 12:00 pm EDT** (= 9:30 pm IST Sep 13)
+
+**Not the 14th.** Verified on the official rules page. **Today: Sep 8 → ~5 working days.**
+Late submissions are not accepted. Everything below is compressed accordingly.
+
 **Rule: build one → test one → commit one → push one.**
+
+---
+
+## Rules that shape the plan (from the official details page)
+
+| Rule | Consequence |
+|---|---|
+| **Max 3 Partner Prizes.** Multiple tracks from one partner count as **1**. | ✅ Arc (2 bounties) + World + Graph = **exactly 3**. Our lineup fits with nothing wasted. |
+| **Version control**: large single commits or missing history **may be disqualified**. | One commit per feature. No branch is required — a clean linear history is what's asked for. Tag `pre-ethonline2026` marks the baseline. |
+| **AI tools**: must document where/how AI was used; spec-driven workflows must ship **all planning artifacts**. | [`AI_USAGE.md`](AI_USAGE.md) + this file are committed deliverables. |
+| **AI must assist, not author.** Fully AI-built projects are ineligible for partner prizes. | Author reviews all contract code; documented in `AI_USAGE.md`. |
+| **Continuity**: document pre-existing work; only new work is judged. | Disclosure table below + the git tag. |
+| **Demo video**: 2–4 min, **≥720p**, no speed-up, no music-over-text, intro <20s, ≤4 bullets/slide. | Auto-rejected on upload otherwise. Budget real time. |
+| **Judging**: Technicality · Originality · Practicality · **Usability (UI/UX/DX)** · WOW. | Usability is a scored criterion — Edgar's V-track earns points, it isn't decoration. |
+| Async round 1 screens the top 20%, but **partner prizes are judged independently** and most prizes go to projects that don't advance. | Optimise for the 3 partner prizes, not the finalist track. |
 
 ---
 
@@ -201,13 +220,12 @@ The central objective reads as small. Glow + pulse + offscreen arrow. ~30 min, f
 
 | Date | Ship | Unlocks |
 |---|---|---|
-| **Sep 8** | S0, S4, S5, A1, **V3** · DM 0x · ask World Discord about AgentKit | eligible |
-| **Sep 9** | A2 escrow + tests + deploy | Arc unblocked |
-| **Sep 10** | A3, A4 + **V2 Arc pot** | **Arc $3,166 reachable** |
-| **Sep 11** | A5, A6 | Arc differentiated |
-| **Sep 12** | W1–W4 + **V2 Verified badge** | **World $3,500** |
-| **Sep 13** | G1–G4 + **V2 Graph signal**, **V1** | **Graph $2,500** |
-| **Sep 14** | S1, S2, S3 → submit | 🚀 |
+| **Sep 8** ✅ | S0 ✅, A1 ✅, A2 ✅ (26/26 tests) · deploy · S4, S5 · DM 0x · ask World Discord re AgentKit | eligible |
+| **Sep 9** | A3 server settlement, A4 wallet + stake UI, **V2 Arc pot** | **Arc $3,166 reachable** |
+| **Sep 10** | A5 agent wallets, A6 mainnet script, **V3** | Arc differentiated |
+| **Sep 11** | W1–W4 + **V2 Verified badge** | **World $3,500** |
+| **Sep 12** | G1–G4 + **V2 Graph signal**, **V1**, S1 | **Graph $2,500** |
+| **Sep 13 AM** | S2 diagram, S3 video → **submit by 12:00 pm EDT** | 🚀 |
 
 **V2 is built incrementally** — each track adds its own HUD element the day it lands. Never a separate task, never deferred to the end.
 
