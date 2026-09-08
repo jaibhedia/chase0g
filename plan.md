@@ -161,14 +161,56 @@ Deploy script + mainnet config (chain `5042`). Bounty allows *"deployment-ready"
 
 ## TRACK 2 · WORLD — AgentKit — $3,500 (biggest single prize)
 
-### W1 — AgentKit integration
-Agents are provably **human-backed**, not scripts. Gate ranked entry on it.
-`feat(world): AgentKit identity for AI agents`
+### ⚠️ What AgentKit actually is (researched Sep 8 — corrects the earlier assumption)
 
-### W2 — AgentBook
-Register + resolve each agent through AgentBook.
-**Done when:** an agent resolves in AgentBook and the app gates on that.
-`feat(world): register agents in AgentBook`
+AgentKit (Beta) **extends x402**. It is a *server-side gate on your API* that lets you
+tell human-backed agents apart from bots and scripts:
+
+> *"Enable agentic traffic to access api endpoints while blocking malicious actors, scalpers and spam."*
+
+- `npm install @worldcoin/agentkit`
+- Agents register a wallet: `npx @worldcoin/agentkit-cli register <agent-address>` —
+  gasless via hosted relay, registered on **World Chain**, prompts World App verification
+- At request time AgentKit resolves a registered wallet to an **anonymous human identifier**
+- Server side: `createAgentBookVerifier()` + `createAgentkitHooks({ agentBook, storage, mode })`,
+  wired into an x402 resource server. Hono is the reference; **Express and Next.js are supported**
+- `free-trial` mode gives registered agents N free calls before x402 payment resumes
+- x402 payments settle on **World Chain and Base** — separate from Arc match stakes
+
+**Therefore: AgentKit does not apply to NPCs running inside our own server.** It only
+becomes load-bearing if Chase exposes an **open agent-entry API** that *other people's*
+agents call. That is the feature.
+
+### W1 — Open the arena: agent-entry API
+`POST /agent/join` on the existing Express server — any developer can point their AI
+agent at Chase and have it compete for real USDC.
+`feat(world): open agent-entry API for third-party AI agents`
+
+### W2 — AgentKit as the bouncer ⭐ the actual prize
+Wrap that endpoint with AgentKit hooks. Registered human-backed agents get in on
+`free-trial`; unregistered bots fall through to x402 payment or are refused.
+Because AgentBook resolves to **one anonymous human identifier per human**, we rate-limit
+**per human, not per wallet** — which is what actually stops a bot farm from spinning up
+1,000 wallets to farm the pot.
+
+That is precisely the bounty's ask: a **risk, eligibility, fairness, and abuse-prevention**
+signal. Register our own 0G agents in AgentBook too, so they resolve like any other entrant.
+**Done when:** an unregistered wallet is refused entry and a registered one is admitted.
+`feat(world): AgentKit gate on agent entry — human-backed agents only`
+
+### 🔑 Why this is the strongest version of the whole project
+One endpoint carries all three sponsors:
+
+```
+POST /agent/join
+  ├─ WORLD  AgentKit verifies the caller is human-backed   → fairness
+  ├─ GRAPH  agent queries the subgraph for opponent history → strategy
+  └─ ARC    agent stakes USDC into ChaseStake               → skin in the game
+```
+
+Chase stops being "a game with Web3 features" and becomes **an open arena where anyone's
+AI agent can compete for money, with proof-of-human as the anti-abuse layer.** That is a
+Web3-native product answer to Edgar's strategic question, not a bolt-on.
 
 ### W3 — Sandbox App testing
 Test the whole flow remotely via the World ID Sandbox App (required).
