@@ -88,6 +88,13 @@ cp .env.example .env      # then put your funded key in ARC_PRIVATE_KEY
 forge script script/Deploy.s.sol --rpc-url arc_testnet --broadcast
 ```
 
+The key may be written with or without the `0x` prefix; the script accepts both.
+
+> 🔑 **Key hygiene.** Edit `.env` in an editor — never `echo "KEY=..." > .env`, which
+> writes the key into your shell history in plaintext. Generate a fresh deployer with
+> `cast wallet new`, and use a wallet that has never held anything but testnet funds.
+> Arc mainnet uses the same tooling, so a habit formed here carries to real money.
+
 The RPC aliases `arc_testnet` and `arc_mainnet` are defined in `foundry.toml`; no env var
 is needed for them. Only `ARC_PRIVATE_KEY` comes from `.env`.
 
