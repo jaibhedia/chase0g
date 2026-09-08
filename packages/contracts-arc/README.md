@@ -14,6 +14,17 @@ USDC *is* the gas token. MIT licensed. Built during ETHOnline 2026 (Continuity T
 
 **USDC ERC-20:** `0x3600000000000000000000000000000000000000` · 6 decimals · CCTP domain `26`
 
+## Deployed
+
+| | |
+|---|---|
+| **ChaseStake (Arc testnet)** | [`0xD648def45026f437351D797dC3574fa97507BA83`](https://testnet.arcscan.app/address/0xD648def45026f437351D797dC3574fa97507BA83) |
+| Deploy tx | [`0x260846cc…5b9d2571`](https://testnet.arcscan.app/tx/0x260846ccd3ed3451134477c388bbb1b935aa11f259619f4dc094ad255b9d2571) |
+| Block | 61111061 · Sep 8, 2026 |
+| Gas paid | ~0.0173 USDC (gas is USDC on Arc) |
+
+Verified on-chain: `USDC` → `0x3600…0000`, `REFUND_DELAY` → 3600s, `MAX_PLAYERS` → 8.
+
 ## ⚠️ The one thing to get right about Arc
 
 USDC is the **native gas asset**. There is no separate native token plus a USDC token —
