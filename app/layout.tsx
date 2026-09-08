@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { VT323, Press_Start_2P } from "next/font/google";
 import "./globals.css";
 import { SocketProvider } from "./providers/SocketProvider";
+import { WalletProvider } from "./providers/WalletProvider";
 import { AudioInitializer } from "./components/AudioInitializer";
 import { ServiceWorkerRegister } from "./components/ServiceWorkerRegister";
 import { RotateOverlay } from "./components/RotateOverlay";
@@ -105,12 +106,14 @@ export default function RootLayout({
         `}} />
       </head>
       <body className={`${bodyFont.variable} ${pressStart.variable} font-body`}>
-        <SocketProvider>
-          <AudioInitializer />
-          <ServiceWorkerRegister />
-          {children}
-          <Analytics />
-        </SocketProvider>
+        <WalletProvider>
+          <SocketProvider>
+            <AudioInitializer />
+            <ServiceWorkerRegister />
+            {children}
+            <Analytics />
+          </SocketProvider>
+        </WalletProvider>
         {/* Landscape-only gate for phones/tablets (matches manifest orientation). */}
         <RotateOverlay />
         {/* Subtle CRT scanline + vignette overlay across the whole app. */}
