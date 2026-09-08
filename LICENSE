@@ -4,6 +4,14 @@ This software and its associated source code, assets, and documentation
 (the "Software") are the proprietary and confidential property of Shantanu
 Swami (the "Author").
 
+EXCEPTION — THE `packages/` DIRECTORY
+
+This license does NOT apply to the contents of the `packages/` directory. All
+code, documentation, and other material under `packages/` is licensed separately
+and permissively under the MIT License; see `packages/LICENSE`. Where this
+license and the MIT License in `packages/LICENSE` conflict as to material under
+`packages/`, the MIT License controls.
+
 The Software is made available publicly for the sole purpose of review and
 evaluation (including hackathon judging). No license or right is granted,
 expressly or by implication, to any person to use, copy, reproduce, modify,

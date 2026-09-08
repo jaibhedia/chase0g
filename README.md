@@ -171,8 +171,17 @@ chase/
 
 ## License
 
-**Proprietary — © 2026 Shantanu Swami. All rights reserved.**
+This repository is **dual-licensed**:
 
-This code is provided for review (e.g. hackathon judging) only. No permission is
-granted to use, copy, modify, distribute, or create derivative works without the
-author's prior written consent. See [`LICENSE`](LICENSE).
+| Path | License |
+|---|---|
+| `packages/` — all ETHOnline 2026 hackathon work | **MIT** — see [`packages/LICENSE`](packages/LICENSE) |
+| Everything else — the Chase game engine | **Proprietary** — see [`LICENSE`](LICENSE) |
+
+**`packages/` (MIT).** Every artifact built during ETHOnline 2026 under the Continuity
+Track — the Arc staking contracts and The Graph subgraph — is open source and free to
+use, copy, modify, and distribute. See [`packages/README.md`](packages/README.md).
+
+**Everything else (proprietary).** © 2026 Shantanu Swami. All rights reserved. Provided
+for review (e.g. hackathon judging) only. No permission is granted to use, copy, modify,
+distribute, or create derivative works without the author's prior written consent.
