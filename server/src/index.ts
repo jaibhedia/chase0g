@@ -30,6 +30,7 @@ import { decideIntents, forgetRoom, getTranscript, type AgentSnapshot } from './
 import { aiEnabled, getAiClient, AI_MODEL, aiProviderName } from './ai/provider';
 import { uploadReplay, ogStorageEnabled } from './og/storage';
 import { submitMatch, getRecent, ogChainEnabled, ogChainReadEnabled } from './og/chain';
+import { settleMatch, getArcMatch, arcEnabled, arcReadEnabled } from './arc/chaseStake';
 
 const PORT = Number(process.env.SOCKET_PORT || process.env.PORT || 3001);
 /** How long a disconnected player's slot is held open for them to come back. */
@@ -70,7 +71,7 @@ const agentTickInFlight = new Set<string>();
 /** Replay upload bookkeeping (Phase 2 / 0G Storage). Upload a given room's replay to
  *  0G Storage exactly once, then serve the cached {rootHash,txHash} to any later asker
  *  (each MP client emits store-replay independently when its match ends). */
-interface StoredReplay { rootHash: string | null; txHash: string | null; chainTxHash: string | null; transcriptLen: number; ogStorageEnabled: boolean; ogChainEnabled: boolean; }
+interface StoredReplay { rootHash: string | null; txHash: string | null; chainTxHash: string | null; transcriptLen: number; ogStorageEnabled: boolean; ogChainEnabled: boolean; arcTxHash: string | null; arcPot: string | null; arcExplorer: string | null; }
 const replayResults = new Map<string, StoredReplay>();
 const replayInFlight = new Set<string>();
 
@@ -189,7 +190,22 @@ app.get('/health', (_req, res) => {
     rooms: rooms.size,
     uptime: process.uptime(),
     ai: { enabled: aiEnabled, provider: aiProviderName, model: AI_MODEL || null, ogStorageEnabled, ogChainEnabled, ogChainReadEnabled },
+    arc: { enabled: arcEnabled, readEnabled: arcReadEnabled },
   });
+});
+
+// Arc — live escrow state for a room, so the lobby can show the pot building up and the
+// results screen can link the payout. Returns { staked: false } for Free Play rooms,
+// which have no on-chain match at all.
+app.get('/arc/match/:roomCode', async (req, res) => {
+  const roomCode = String(req.params.roomCode || '').slice(0, 32);
+  if (!arcReadEnabled) { res.json({ enabled: false, staked: false, match: null }); return; }
+  try {
+    const match = await getArcMatch(roomCode);
+    res.json({ enabled: true, staked: !!match, match });
+  } catch (err) {
+    res.json({ enabled: true, staked: false, match: null, error: (err as Error).message });
+  }
 });
 
 // Phase 3 — the on-chain leaderboard, read from the ChaseLeaderboard contract. The
@@ -574,6 +590,11 @@ io.on('connection', (socket: Socket<any, any, any, SocketData>) => {
         if (posted) console.log(`[0G Chain] leaderboard updated room=${rc} tx=${posted.txHash}${uploaded?.rootHash ? '' : ' (no replay hash — Storage unavailable)'}`);
       }
 
+      // Arc — pay out the USDC pot for ranked matches. Safe to call unconditionally:
+      // a Free Play room has no on-chain match, so this no-ops. The replay root links
+      // the payout to the recorded match and its AI decision transcript.
+      const settled = await settleMatch(rc, payload?.result?.winner?.address, uploaded?.rootHash ?? '');
+
       const result: StoredReplay = {
         rootHash: uploaded?.rootHash ?? null,
         txHash: uploaded?.txHash ?? null,
@@ -581,14 +602,17 @@ io.on('connection', (socket: Socket<any, any, any, SocketData>) => {
         transcriptLen: transcript.length,
         ogStorageEnabled,
         ogChainEnabled,
+        arcTxHash: settled?.txHash ?? null,
+        arcPot: settled?.pot ?? null,
+        arcExplorer: settled?.explorer ?? null,
       };
-      // Cache once we have a durable artifact (a stored replay OR an on-chain row) so we
-      // don't re-submit for the same room.
-      if (uploaded || chainTxHash) replayResults.set(rc, result);
+      // Cache once we have a durable artifact (a stored replay, an on-chain row, or a
+      // settled pot) so we don't re-submit for the same room.
+      if (uploaded || chainTxHash || settled) replayResults.set(rc, result);
       reply(result);
     } catch (err) {
       console.warn('[0G Storage] store-replay error:', (err as Error).message);
-      socket.emit('replay-stored', { rootHash: null, txHash: null, chainTxHash: null, transcriptLen: transcript.length, ogStorageEnabled, ogChainEnabled });
+      socket.emit('replay-stored', { rootHash: null, txHash: null, chainTxHash: null, transcriptLen: transcript.length, ogStorageEnabled, ogChainEnabled, arcTxHash: null, arcPot: null, arcExplorer: null });
     } finally {
       replayInFlight.delete(rc);
     }

@@ -377,7 +377,7 @@ Each track's partner write-up (S6) is done the day that track lands, while the f
 | S0 License split | — | `0bd6f25` | [x] |
 | A1 Arc setup | Arc | `f3f04bf` | [x] |
 | A2 ChaseStake escrow | Arc | `62896aa` | [x] — 26/26 tests; **deployed** `0xD648def4…07BA83` |
-| A3 Server settlement | Arc | | [ ] |
+| A3 Server settlement | Arc | `pending` | [x] — e2e payout verified on Arc |
 | A4 Wallet + stake UI | Arc | | [ ] |
 | A5 Agent wallets | Arc | | [ ] |
 | A6 Mainnet-ready | Arc | | [ ] |
