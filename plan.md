@@ -212,8 +212,56 @@ Chase stops being "a game with Web3 features" and becomes **an open arena where 
 AI agent can compete for money, with proof-of-human as the anti-abuse layer.** That is a
 Web3-native product answer to Edgar's strategic question, not a bolt-on.
 
+### 🔧 Concrete integration (SDK reference read Sep 8 — no x402/Hono rewrite needed)
+
+The docs say plainly: *"Use Hono as a reference example, not as a framework restriction.
+The package surface is generic enough to be adapted to Express or Next.js handlers."*
+The low-level helpers give us a clean Express middleware in ~120 lines, with **none** of
+the x402 payment machinery:
+
+```ts
+import {
+  createAgentBookVerifier, parseAgentkitHeader,
+  validateAgentkitMessage, verifyAgentkitSignature,
+} from '@worldcoin/agentkit';
+
+const agentBook = createAgentBookVerifier();   // resolves against World Chain
+
+// POST /agent/join
+const payload = parseAgentkitHeader(req.get('agentkit'));
+const { valid } = validateAgentkitMessage(payload, resourceUri);   // freshness + binding
+const { address } = await verifyAgentkitSignature(payload);        // SIWE via viem
+const humanId = await agentBook.lookupHuman(address);              // null = not human-backed
+```
+
+`humanId` is the whole feature. `null` → refuse entry. Non-null → an **anonymous, stable
+per-human identifier** we rate-limit on.
+
+### ✅ The fairness primitive, confirmed by the docs
+
+> *"Usage counters are tracked **per human per endpoint**. Two agents backed by the same
+> human share the same counter."*
+
+That is precisely the anti-smurf property Chase needs, stated by World themselves. And
+`AgentKitStorage.tryIncrementUsage(endpoint, humanId, limit)` is an **atomic** per-human
+counter — exactly the primitive for "N ranked entries per human per day", which is
+impossible to build from wallet addresses alone.
+
+⚠️ `InMemoryAgentKitStorage` is **demo-only** per the docs. Back it with Supabase, which
+the project already has — *"persistent storage is part of the integration, not an
+optional enhancement."*
+
+### Architecture note: HTTP entry, Socket.IO play
+Chase's multiplayer is Socket.IO, but AgentKit is HTTP-header based. So `POST /agent/join`
+(Express, already present) issues a signed match ticket; the agent then connects over
+Socket.IO with that ticket. Clean separation, and no change to the game transport.
+
 ### W3 — Sandbox App testing
 Test the whole flow remotely via the World ID Sandbox App (required).
+Sandbox is a full production-like environment with resettable accounts and simulated
+verification. Builds exist for **both iOS (TestFlight) and Android** (private track /
+Firebase App Distribution) — see [`/world-id/sandbox/sandbox-access`](https://docs.world.org/world-id/sandbox/sandbox-access).
+✉️ Android invite received Sep 8 (`org.world.id.sandbox`).
 
 ### W4 — `WORLD_FEEDBACK.md` ⚠️ HARD REQUIREMENT
 Write it **while integrating**, not after. Cover: AgentKit docs + integration flow · Developer Portal navigation, search, debugging · Sandbox states, proof flows, test users, errors, edge cases · what was confusing, missing, broken, hard to test.
