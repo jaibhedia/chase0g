@@ -34,6 +34,11 @@ These are gates, not tasks. Any one of them missing costs everything else.
 - [ ] **Pre-existing work disclosed in writing** to ETHGlobal
 - [ ] **Project check-ins answered** — the dashboard notifies you, usually mid-week. Partners and staff use these to offer help; ignoring them wastes free support.
 - [ ] Discord connected to the ETHGlobal account
+- [ ] **🔑 Rotate the `ChaseStake` server key before submitting.** The deployed escrow's
+  settle authority is `0x5b43…aB09`, a key that was pasted in plaintext and is compromised.
+  Testnet-only, so it is deliberately deferred — but it must not reach Arc mainnet (Sep 30).
+  One call, no redeploy:
+  `cast send 0xD648def45026f437351D797dC3574fa97507BA83 "setServer(address)" <NEW> --rpc-url arc_testnet --private-key <OLD>`
 
 > ⚠️ **"Partners are already judging your project."** Partner judging is asynchronous and ongoing — it doesn't start at the deadline. Keep the repo README and project page presentable from now on, not just on Sunday.
 
