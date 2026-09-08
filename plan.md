@@ -24,6 +24,38 @@ Late submissions are not accepted. Everything below is compressed accordingly.
 
 ---
 
+## ✅ Eligibility checklist — verify TODAY
+
+These are gates, not tasks. Any one of them missing costs everything else.
+
+- [ ] **🚨 ETH stake placed on the Hacker Dashboard.** *"You'll need to stake ETH… to secure your spot."* Returned ~3 weeks after the event once you submit. **If you have not staked, you are not registered.** Check first, before writing another line of code.
+- [ ] **Project created** on the Hacker Dashboard (name + description)
+- [ ] **Continuity track selected** — "Ship a Feature" (extending an existing private/commercial product), not "Extend Open Source"
+- [ ] **Pre-existing work disclosed in writing** to ETHGlobal
+- [ ] **Project check-ins answered** — the dashboard notifies you, usually mid-week. Partners and staff use these to offer help; ignoring them wastes free support.
+- [ ] Discord connected to the ETHGlobal account
+
+> ⚠️ **"Partners are already judging your project."** Partner judging is asynchronous and ongoing — it doesn't start at the deadline. Keep the repo README and project page presentable from now on, not just on Sunday.
+
+---
+
+## Submission form — what it asks for
+
+Two options at submission:
+
+1. **Finalist + Partner Prizes** — you present live *if* selected (top ~20%). 7 minutes: 4 demo + 3 Q&A.
+2. **Partner Prizes only** — async judging, no live session.
+
+**Recommendation: option 1.** Partner judging is identical either way and requires nothing extra from you; the finalist path is pure upside. Only choose option 2 if a live session in EDT hours is impossible for you — judging lands after Sep 13.
+
+**Per partner prize you must write:** how you used/integrated their tools · **feedback for them** · relevant comments. That's **three write-ups**, and it is *"the only way for partners to assess your project."*
+
+→ Tracked as **S6** below. Budget 90 minutes; do not leave it to Sunday morning.
+
+**Live-judging prep** (only if selected) — three questions they ask: what inspired the project · what tools you used and why · what challenges you solved and how.
+
+---
+
 ## The 3 tracks
 
 | # | Sponsor | Prize | $ |
@@ -175,6 +207,8 @@ Agent brain queries pre-match: opponent win rate, stake history, pot size → fe
 - **S3** — **Demo video 2–4 min**: 30s what existed → 2min what shipped → 30s why it's verifiable
 - **S4** — Register as Continuity Project + disclose prior work in writing
 - **S5** — Paid Render + keep-alive ping (10 min, protects the demo)
+- **S6** — **Three partner write-ups** (Arc, World, Graph): how you integrated their tools + feedback + comments. Required by the submission form; *"the only way for partners to assess your project."* ~90 min. **Write each one the day that track lands, while it's fresh** — not on Sunday.
+- **S7** — [`AI_USAGE.md`](AI_USAGE.md) kept current: the AI rule requires documenting *which files* AI touched. One row per feature, added in the same commit as the code.
 
 ---
 
@@ -222,10 +256,12 @@ The central objective reads as small. Glow + pulse + offscreen arrow. ~30 min, f
 |---|---|---|
 | **Sep 8** ✅ | S0 ✅, A1 ✅, A2 ✅ (26/26 tests) · deploy · S4, S5 · DM 0x · ask World Discord re AgentKit | eligible |
 | **Sep 9** | A3 server settlement, A4 wallet + stake UI, **V2 Arc pot** | **Arc $3,166 reachable** |
-| **Sep 10** | A5 agent wallets, A6 mainnet script, **V3** | Arc differentiated |
-| **Sep 11** | W1–W4 + **V2 Verified badge** | **World $3,500** |
-| **Sep 12** | G1–G4 + **V2 Graph signal**, **V1**, S1 | **Graph $2,500** |
+| **Sep 10** | A5 agent wallets, A6 mainnet script, **V3** · **S6 Arc write-up** | Arc differentiated |
+| **Sep 11** | W1–W4 + **V2 Verified badge** · **S6 World write-up** | **World $3,500** |
+| **Sep 12** | G1–G4 + **V2 Graph signal**, **V1**, S1 · **S6 Graph write-up** | **Graph $2,500** |
 | **Sep 13 AM** | S2 diagram, S3 video → **submit by 12:00 pm EDT** | 🚀 |
+
+Each track's partner write-up (S6) is done the day that track lands, while the friction is fresh. Sunday morning is video and diagram only — nothing else fits.
 
 **V2 is built incrementally** — each track adds its own HUD element the day it lands. Never a separate task, never deferred to the end.
 
