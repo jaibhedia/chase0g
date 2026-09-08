@@ -1,0 +1,12 @@
+# Foundry
+out/
+cache/
+broadcast/
+lib/
+
+# Node
+node_modules/
+
+# Never commit keys
+.env
+.env.local
