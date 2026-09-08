@@ -1,0 +1,14 @@
+{
+  "name": "@chase/contracts-arc",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "description": "ChaseStake — USDC match-stake escrow on Arc (ETHOnline 2026)",
+  "scripts": {
+    "check": "node script/check-arc.mjs"
+  },
+  "dependencies": {
+    "viem": "^2.21.0"
+  }
+}
