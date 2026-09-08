@@ -8,10 +8,11 @@ import { Button } from '@/components/ui/button';
 import { gameMaps } from '../data/maps';
 import { characters } from '../data/characters';
 import { ArrowLeft, ArrowRight, Check, Globe, Lock, Play } from 'lucide-react';
+import { RankedStakePanel } from '../components/RankedStakePanel';
 
 export default function MultiplayerLobby() {
   const router = useRouter();
-  const { selectedCharacter, selectedMap, gameMode, setMap, setCharacter: setStoreCharacter, setServerStartTime, setRoomPlayers, setRoomCode: setStoreRoomCode, setMultiplayerHiddenFill, userId: storeUserId, initUserId } = useGameStore();
+  const { selectedCharacter, selectedMap, gameMode, setMap, setCharacter: setStoreCharacter, setServerStartTime, setRoomPlayers, setRoomCode: setStoreRoomCode, roomCode: canonicalRoomCode, setMultiplayerHiddenFill, userId: storeUserId, initUserId } = useGameStore();
   const { socket, createRoom, joinRoom, setPlayerReady, chooseCharacter, startGame, leaveRoom } = useSocket();
 
   const [roomCode, setRoomCode] = useState('');
@@ -663,6 +664,15 @@ export default function MultiplayerLobby() {
               Share this code with your friends
             </p>
           </div>
+        </div>
+
+        {/* Ranked stake — the on-chain pot for this room.
+            Uses the store's room code, not the local `roomCode` state: the store always
+            holds the uppercase code the server knows, while the local state keeps whatever
+            the joining player typed. The match id is a hash of that string, so the raw
+            input would point at an escrow the server never settles. */}
+        <div className="mb-6">
+          <RankedStakePanel roomCode={canonicalRoomCode} />
         </div>
 
         {/* Selected Map Display */}

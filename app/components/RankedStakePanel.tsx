@@ -116,13 +116,10 @@ export function RankedStakePanel({
   );
 }
 
-/* Sharp corners, thick ink border — matches the arcade panels used across the game. */
+/* Reuses the game's own wood panel rather than a lookalike, so the staking UI reads as
+   part of Chase and not a bolted-on crypto widget. */
 function Shell({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="border-4 border-[#11111C] bg-[#181826] p-4 font-body text-[#F4E7C3]">
-      {children}
-    </div>
-  );
+  return <div className="pixel-panel p-4">{children}</div>;
 }
 
 function Button({
@@ -139,7 +136,7 @@ function Button({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="w-full border-2 border-[#11111C] bg-[#FFC93C] px-4 py-2 font-heading text-xs text-[#11111C] transition-transform active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
+      className="pixel-button pixel-font w-full px-4 py-3 text-[10px]"
     >
       {children}
     </button>
