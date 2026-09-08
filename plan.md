@@ -225,9 +225,9 @@ The central objective reads as small. Glow + pulse + offscreen arrow. ~30 min, f
 
 | Feature | Track | Commit | Done |
 |---|---|---|---|
-| S0 License split | — | | [ ] |
-| A1 Arc setup | Arc | | [ ] |
-| A2 ChaseStake escrow | Arc | | [ ] |
+| S0 License split | — | `0bd6f25` | [x] |
+| A1 Arc setup | Arc | `f3f04bf` | [x] |
+| A2 ChaseStake escrow | Arc | `62896aa` | [x] — 26/26 tests; **awaiting deploy** |
 | A3 Server settlement | Arc | | [ ] |
 | A4 Wallet + stake UI | Arc | | [ ] |
 | A5 Agent wallets | Arc | | [ ] |
