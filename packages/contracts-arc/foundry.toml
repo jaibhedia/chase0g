@@ -3,15 +3,13 @@ src = "src"
 out = "out"
 libs = ["lib"]
 test = "test"
+script = "script"
 solc_version = "0.8.24"
 optimizer = true
 optimizer_runs = 200
-# Solidity scripts only; the .mjs helpers in script/ are ignored by forge.
-script = "script"
 
+# Public endpoints, hardcoded on purpose: an env var here means forge refuses to
+# run at all when it is unset, even for `forge test`. Only secrets belong in .env.
 [rpc_endpoints]
-arc_testnet = "${ARC_TESTNET_RPC_URL}"
-arc_mainnet = "${ARC_MAINNET_RPC_URL}"
-
-[etherscan]
-arc_testnet = { key = "${ARCSCAN_API_KEY}", url = "https://testnet.arcscan.app/api" }
+arc_testnet = "https://rpc.testnet.arc.network"
+arc_mainnet = "https://rpc.arc.network"

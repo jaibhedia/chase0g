@@ -33,10 +33,24 @@ Consequences for this package:
 - **Never** call `decimals()` on a native sentinel (`0xEeee…`, `0x0000…`); it reverts.
 - USDC ↔ native is not a swap. Reject any code path that tries to convert between them.
 
-## A1 — connectivity check
+## Setup
+
+All commands below run **from this directory**. From the repo root:
+
+```bash
+cd packages/contracts-arc
+```
+
+First time only — `lib/` is gitignored, so fetch the test framework:
 
 ```bash
 npm install
+forge install foundry-rs/forge-std --no-git
+```
+
+## A1 — connectivity check
+
+```bash
 node script/check-arc.mjs 0xYourAddress
 ```
 
@@ -59,3 +73,24 @@ refund(bytes32 matchId)                                        // timeout escape
 
 `replayRoot` is the 0G Storage Merkle root of the match replay, so a payout is traceable
 to the recorded match and its AI decision transcript.
+
+### Test
+
+```bash
+forge test          # 26 tests, includes a 256-run fuzz
+forge test -vvv     # with traces
+```
+
+### Deploy
+
+```bash
+cp .env.example .env      # then put your funded key in ARC_PRIVATE_KEY
+forge script script/Deploy.s.sol --rpc-url arc_testnet --broadcast
+```
+
+The RPC aliases `arc_testnet` and `arc_mainnet` are defined in `foundry.toml`; no env var
+is needed for them. Only `ARC_PRIVATE_KEY` comes from `.env`.
+
+Mainnet (chain `5042`) is the identical command with `--rpc-url arc_mainnet`.
+
+After deploying, put the address in the repo-root `.env` as `ARC_CHASESTAKE_ADDRESS`.
