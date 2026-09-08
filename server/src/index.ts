@@ -27,7 +27,7 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { Server, type Socket } from 'socket.io';
 import { decideIntents, forgetRoom, getTranscript, type AgentSnapshot } from './agents/agentBrain';
-import { ogComputeEnabled, getOgClient, OG_MODEL } from './og/computeRouter';
+import { aiEnabled, getAiClient, AI_MODEL, aiProviderName } from './ai/provider';
 import { uploadReplay, ogStorageEnabled } from './og/storage';
 import { submitMatch, getRecent, ogChainEnabled, ogChainReadEnabled } from './og/chain';
 
@@ -188,7 +188,7 @@ app.get('/health', (_req, res) => {
     ok: true,
     rooms: rooms.size,
     uptime: process.uptime(),
-    ai: { ogComputeEnabled, model: OG_MODEL || null, ogStorageEnabled, ogChainEnabled, ogChainReadEnabled },
+    ai: { enabled: aiEnabled, provider: aiProviderName, model: AI_MODEL || null, ogStorageEnabled, ogChainEnabled, ogChainReadEnabled },
   });
 });
 
@@ -496,14 +496,14 @@ io.on('connection', (socket: Socket<any, any, any, SocketData>) => {
     agentTickInFlight.add(rc);
     try {
       const { intents, source } = await decideIntents({ ...snap, roomCode: rc });
-      const payload = { intents, source, ogEnabled: ogComputeEnabled };
+      const payload = { intents, source, ogEnabled: aiEnabled, aiProvider: aiProviderName };
       // Reach the requesting client (single-player has no Socket.IO room) AND the
       // rest of the room (multiplayer), with no duplicate to the sender.
       socket.emit('agent-intents', payload);
       socket.to(rc).emit('agent-intents', payload);
     } catch (err) {
       console.warn('[0G] agent-tick error:', (err as Error).message);
-      socket.emit('agent-intents', { intents: [], source: 'fallback', ogEnabled: ogComputeEnabled });
+      socket.emit('agent-intents', { intents: [], source: 'fallback', ogEnabled: aiEnabled, aiProvider: aiProviderName });
     } finally {
       agentTickInFlight.delete(rc);
     }
@@ -717,7 +717,7 @@ httpServer.listen(PORT, () => {
  * smoke test just means agents start on scripted fallback until 0G recovers.
  */
 async function ogSmokeTest(): Promise<void> {
-  const og = getOgClient();
+  const og = getAiClient();
   if (!og) {
     console.warn('[0G] smoke test skipped — Compute Router not configured.');
     return;
@@ -725,11 +725,11 @@ async function ogSmokeTest(): Promise<void> {
   const started = Date.now();
   try {
     const r = await og.chat.completions.create(
-      { model: OG_MODEL, messages: [{ role: 'user', content: 'Reply with the single word: ok' }], max_tokens: 16 },
+      { model: AI_MODEL, messages: [{ role: 'user', content: 'Reply with the single word: ok' }], max_tokens: 16 },
       { timeout: 8000, maxRetries: 0 },
     );
     const reply = r.choices?.[0]?.message?.content?.trim() ?? '';
-    console.log(`[0G] Compute reachable ✓ model=${OG_MODEL} latency=${Date.now() - started}ms reply="${reply}"`);
+    console.log(`[ai] ${aiProviderName} reachable ✓ model=${AI_MODEL} latency=${Date.now() - started}ms reply="${reply}"`);
   } catch (err) {
     console.warn(`[0G] Compute smoke test FAILED (${Date.now() - started}ms):`, (err as Error).message);
   }

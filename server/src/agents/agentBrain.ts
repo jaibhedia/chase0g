@@ -13,7 +13,7 @@
  * stall. This keeps the game playable for judges even if 0G blips.
  */
 import type OpenAI from 'openai';
-import { getOgClient, OG_MODEL } from '../og/computeRouter';
+import { getAiClient, AI_MODEL } from '../ai/provider';
 
 export type AgentMode = 'hunt' | 'flee' | 'guard' | 'intercept' | 'roam';
 export type AgentPersona = 'aggressive' | 'sneaky' | 'cocky' | 'cautious';
@@ -185,7 +185,7 @@ async function callOnce(
   // ("model_not_capable"). We instruct JSON in the prompt and parse it from text.
   const completion = await og.chat.completions.create(
     {
-      model: OG_MODEL,
+      model: AI_MODEL,
       messages: [
         { role: 'system', content: SYSTEM_PROMPT },
         { role: 'user', content: buildUserPrompt(snap, agents, prev) },
@@ -227,7 +227,7 @@ async function callOnce(
 export async function decideIntents(
   snap: AgentSnapshot,
 ): Promise<{ intents: Intent[]; source: IntentSource }> {
-  const og = getOgClient();
+  const og = getAiClient();
   const agents = snap.players.filter((p) => p.kind === 'agent');
   if (!og || agents.length === 0) {
     return { intents: lastGood.get(snap.roomCode) ?? [], source: 'fallback' };
