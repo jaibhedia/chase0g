@@ -19,17 +19,34 @@ import { parseUnits } from 'viem';
 import { useRankedStake } from '@/app/hooks/useRankedStake';
 import { USDC_DECIMALS } from '@/lib/arc/chaseStake';
 import { arcTxUrl } from '@/lib/arc/chain';
+import { WALLET_ENABLED } from '../providers/WalletProvider';
 
 /** Default ranked buy-in. Small on purpose — testnet USDC still has to be fauceted. */
 const DEFAULT_STAKE = '1';
 
-export function RankedStakePanel({
-  roomCode,
-  stake = DEFAULT_STAKE,
-}: {
-  roomCode: string | null;
-  stake?: string;
-}) {
+type PanelProps = { roomCode: string | null; stake?: string };
+
+/**
+ * With no Privy app id, WalletProvider renders the app without PrivyProvider — and
+ * without the wagmi tree nested inside it. Both `usePrivy` and the wagmi hooks behind
+ * `useRankedStake` throw outside their providers, so this branch has to happen at the
+ * component boundary, above any hook call. Previously the hooks ran unguarded and a
+ * missing app id took down the entire lobby rather than just this panel.
+ */
+export function RankedStakePanel(props: PanelProps) {
+  if (!WALLET_ENABLED) {
+    return (
+      <Shell>
+        <p className="text-[#F4E7C3]/60 text-sm">
+          Ranked play is unconfigured — this match won&apos;t hold a pot.
+        </p>
+      </Shell>
+    );
+  }
+  return <RankedStakePanelInner {...props} />;
+}
+
+function RankedStakePanelInner({ roomCode, stake = DEFAULT_STAKE }: PanelProps) {
   const { ready, authenticated, login, user } = usePrivy();
   const [txHash, setTxHash] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);

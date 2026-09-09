@@ -29,6 +29,17 @@ const wagmiConfig = createConfig({
 
 const PRIVY_APP_ID = process.env.NEXT_PUBLIC_PRIVY_APP_ID || '';
 
+/**
+ * Whether the Privy tree is actually mounted below this provider.
+ *
+ * Anything calling `usePrivy()` must check this first: with no app id we render children
+ * unwrapped, and the hook throws outside its provider. Branch on it at the *component*
+ * boundary, never inside a component that also calls the hook — a conditional `usePrivy()`
+ * would break the rules of hooks. It reads from a NEXT_PUBLIC_ constant, so the value is
+ * fixed at build time and the branch never flips between renders.
+ */
+export const WALLET_ENABLED = Boolean(PRIVY_APP_ID);
+
 export function WalletProvider({ children }: { children: ReactNode }) {
   // One QueryClient per mount, created in state so React 19's double-invoked renders in
   // development don't hand wagmi a fresh cache on every render.

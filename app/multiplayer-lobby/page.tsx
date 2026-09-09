@@ -9,8 +9,15 @@ import { gameMaps } from '../data/maps';
 import { characters } from '../data/characters';
 import { ArrowLeft, ArrowRight, Check, Globe, Lock, Play } from 'lucide-react';
 import { RankedStakePanel } from '../components/RankedStakePanel';
+import { MultiplayerAuthGate } from '../components/MultiplayerAuthGate';
 
-export default function MultiplayerLobby() {
+/**
+ * Sign-in is handled by the gate wrapping this component, so everything below can assume
+ * a signed-in player. Keeping it outside also means the socket effects here never run for
+ * a visitor who hasn't signed in — no room is created, and no connection is opened, until
+ * there is a wallet to attach it to.
+ */
+function MultiplayerLobbyInner() {
   const router = useRouter();
   const { selectedCharacter, selectedMap, gameMode, setMap, setCharacter: setStoreCharacter, setServerStartTime, setRoomPlayers, setRoomCode: setStoreRoomCode, roomCode: canonicalRoomCode, setMultiplayerHiddenFill, userId: storeUserId, initUserId } = useGameStore();
   const { socket, createRoom, joinRoom, setPlayerReady, chooseCharacter, startGame, leaveRoom } = useSocket();
@@ -809,5 +816,14 @@ export default function MultiplayerLobby() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function MultiplayerLobby() {
+  const router = useRouter();
+  return (
+    <MultiplayerAuthGate onBack={() => router.push('/mode-selection')}>
+      <MultiplayerLobbyInner />
+    </MultiplayerAuthGate>
   );
 }
