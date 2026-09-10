@@ -32,7 +32,7 @@ import { aiEnabled, getAiClient, AI_MODEL, aiProviderName } from './ai/provider'
 import { uploadReplay, ogStorageEnabled } from './og/storage';
 import { submitMatch, getRecent, ogChainEnabled, ogChainReadEnabled } from './og/chain';
 import { settleMatch, getArcMatch, arcEnabled, arcReadEnabled } from './arc/chaseStake';
-import { dripTo, faucetEnabled } from './arc/faucet';
+import { dripTo, faucetEnabled, faucetStatus } from './arc/faucet';
 
 const PORT = Number(process.env.SOCKET_PORT || process.env.PORT || 3001);
 /** How long a disconnected player's slot is held open for them to come back. */
@@ -250,7 +250,11 @@ app.post('/arc/faucet', faucetLimiter, async (req, res) => {
     res.status(503).json({ ok: false, reason: 'Faucet is not configured on this server.' });
     return;
   }
-  const result = await dripTo(String((req.body as { address?: unknown })?.address ?? ''));
+  const body = (req.body ?? {}) as { address?: unknown; userId?: unknown };
+  const result = await dripTo(
+    String(body.address ?? ''),
+    typeof body.userId === 'string' ? body.userId : null,
+  );
   // 400 rather than 500 on refusal: every reason the faucet says no (already claimed,
   // already funded, empty) is a fact about the request, not a server failure.
   res.status(result.ok ? 200 : 400).json(result);
@@ -304,9 +308,9 @@ interface SocketData {
  * cannot afford the match they just joined. Fire-and-forget: nobody waits on a faucet to
  * enter a lobby.
  */
-function fundInBackground(address: string | null): void {
+function fundInBackground(address: string | null, userId?: string | null): void {
   if (!address || !faucetEnabled) return;
-  dripTo(address).catch(() => { /* every real refusal is already logged by the faucet */ });
+  dripTo(address, userId).catch(() => { /* every real refusal is already logged by the faucet */ });
 }
 
 io.on('connection', (socket: Socket<any, any, any, SocketData>) => {
@@ -337,7 +341,7 @@ io.on('connection', (socket: Socket<any, any, any, SocketData>) => {
       socket_id: socket.id,
       wallet_address: cleanAddress((data as { walletAddress?: unknown })?.walletAddress),
     };
-    fundInBackground(player.wallet_address);
+    fundInBackground(player.wallet_address, player.user_id);
     rooms.set(roomCode, {
       mapId: data.mapId || 'map-1',
       isPublic: data.isPublic !== false,
@@ -396,7 +400,8 @@ io.on('connection', (socket: Socket<any, any, any, SocketData>) => {
         socket_id: socket.id,
         wallet_address: cleanAddress((data as { walletAddress?: unknown })?.walletAddress),
       });
-      fundInBackground(room.players[room.players.length - 1].wallet_address);
+      const joined = room.players[room.players.length - 1];
+      fundInBackground(joined.wallet_address, joined.user_id);
     }
     socket.data.userId = data.userId;
     socket.data.roomCode = data.roomCode;
@@ -827,6 +832,15 @@ httpServer.on('error', (err: NodeJS.ErrnoException) => {
 httpServer.listen(PORT, () => {
   console.log(`[chase-server] Express + Socket.IO listening on http://localhost:${PORT}`);
   void ogSmokeTest();
+  // Say up front how many players the faucet can still fund. Running dry mid-demo looks
+  // like the sign-in is broken, since a player with no USDC simply cannot enter a match.
+  void faucetStatus().then((s) => {
+    if (!s) {
+      console.warn('[faucet] disabled (set FAUCET_PRIVATE_KEY). New players will arrive with an empty wallet.');
+      return;
+    }
+    console.log(`[faucet] ${s.address} holds ${Number(s.usdc).toFixed(2)} USDC — roughly ${Math.max(0, Math.floor((Number(s.usdc) - 1) / 2))} more players`);
+  });
 });
 
 /**

@@ -59,3 +59,7 @@ next-env.d.ts
 .idea/
 *.swp
 *.swo
+
+# Faucet ledger — which wallets/accounts have already been funded. Runtime state, and
+# per-deployment: committing it would hand every clone someone else's claim history.
+.faucet-claims.json

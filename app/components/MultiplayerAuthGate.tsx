@@ -97,7 +97,7 @@ function PrivyGate({ children, onBack }: { children: ReactNode; onBack: () => vo
   // the lobby simply sends no address until it has one.
   return (
     <WalletAddressContext.Provider value={user?.wallet?.address ?? null}>
-      <AutoFund address={user?.wallet?.address ?? null} />
+      <AutoFund address={user?.wallet?.address ?? null} userId={user?.id ?? null} />
       {children}
     </WalletAddressContext.Provider>
   );
@@ -115,7 +115,7 @@ function PrivyGate({ children, onBack }: { children: ReactNode; onBack: () => vo
  * in development from firing two requests for the same address; the server would refuse
  * the second anyway.
  */
-function AutoFund({ address }: { address: string | null }) {
+function AutoFund({ address, userId }: { address: string | null; userId: string | null }) {
   const attempted = useRef<string | null>(null);
 
   useEffect(() => {
@@ -126,7 +126,9 @@ function AutoFund({ address }: { address: string | null }) {
     fetch(`${base}/arc/faucet`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ address }),
+      // The Privy user id rides along so the ledger can refuse a second claim from an
+      // account that re-provisioned its wallet, not just a repeat of the same address.
+      body: JSON.stringify({ address, userId }),
     })
       .then((r) => r.json())
       .then((d) => {

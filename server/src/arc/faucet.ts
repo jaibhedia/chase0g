@@ -3,7 +3,8 @@
  *
  * A player signs in with an email, Privy hands them a brand-new embedded wallet, and
  * that wallet has nothing in it. Telling them to go find a testnet faucet and paste an
- * address is where a demo loses its audience — so the game funds the first match itself.
+ * address is where a demo loses its audience — so the game funds the first match itself,
+ * automatically, with no button to press.
  *
  * One native transfer covers everything. Arc's USDC precompile at 0x3600… is a 6-decimal
  * *view* over the native balance, not a separate token:
@@ -13,12 +14,13 @@
  * verified exactly on-chain. So sending native USDC gives the player gas *and* the
  * balance that approve/join spend. There is nothing to mint and no second transfer.
  *
- * This is testnet play money, but it is still a wallet handing out funds on request, so
- * it is bounded on every axis available: one claim per address ever, a cap on how much
- * the recipient may already hold, a floor under the faucet's own balance, and a single
- * in-flight send at a time.
+ * Runs on its own key (FAUCET_PRIVATE_KEY), deliberately not the settlement key. A faucet
+ * hands money to anyone who asks; settlement holds the escrow's authority. Sharing one
+ * wallet would mean a drained faucet is also a match that cannot pay out.
  */
 import { ethers } from 'ethers';
+import { readFileSync, writeFileSync, renameSync } from 'node:fs';
+import { join } from 'node:path';
 
 /** Drip size. Two matches at the 1 USDC default buy-in, plus room for gas. */
 const DRIP_USDC = 2n;
@@ -31,22 +33,67 @@ const DRIP_WEI = DRIP_USDC * 10n ** 18n;
  */
 const ALREADY_FUNDED_WEI = 1n * 10n ** 18n;
 
-/** Never spend the faucet down to nothing — settlement runs from the same key. */
-const RESERVE_WEI = 5n * 10n ** 18n;
+/** Leave enough behind to cover gas on the sends themselves. */
+const RESERVE_WEI = 1n * 10n ** 18n;
 
 const RPC = process.env.ARC_TESTNET_RPC_URL || 'https://rpc.testnet.arc.network';
-const PRIVATE_KEY = process.env.ARC_PRIVATE_KEY || '';
+const PRIVATE_KEY = process.env.FAUCET_PRIVATE_KEY || '';
 
 export const faucetEnabled = Boolean(PRIVATE_KEY);
 
 /**
- * Addresses already served, and whether a send is in flight.
+ * Who has already been served, persisted across restarts.
  *
- * In memory on purpose: this is a hackathon testnet faucet, and a restart re-arming a
- * few addresses costs play money. What it must not do is serve the same address twice
- * *concurrently*, which is why claims are recorded before the await, not after.
+ * This was a bare in-memory Set, which quietly meant "once per address *per server
+ * process*" — every restart re-armed everyone, and a dev server restarts constantly. On
+ * a wallet holding a fixed amount of testnet USDC that is the difference between a
+ * faucet and a leak.
+ *
+ * Two independent keys, because they fail differently: an address stops the same wallet
+ * claiming twice, and a Privy user id stops one account claiming again from a wallet it
+ * re-provisioned. Either one matching is enough to refuse.
  */
-const claimed = new Set<string>();
+const CLAIMS_FILE = join(process.cwd(), '.faucet-claims.json');
+
+interface ClaimRecord {
+  addresses: string[];
+  userIds: string[];
+}
+
+function loadClaims(): { addresses: Set<string>; userIds: Set<string> } {
+  try {
+    const raw = JSON.parse(readFileSync(CLAIMS_FILE, 'utf8')) as Partial<ClaimRecord>;
+    return {
+      addresses: new Set(Array.isArray(raw.addresses) ? raw.addresses : []),
+      userIds: new Set(Array.isArray(raw.userIds) ? raw.userIds : []),
+    };
+  } catch {
+    // Missing or corrupt file means nobody has claimed yet, which is the safe reading on
+    // a testnet faucet: it costs play money, and refusing everyone would be worse.
+    return { addresses: new Set(), userIds: new Set() };
+  }
+}
+
+const claimed = loadClaims();
+
+/** Write via temp + rename so a crash mid-write cannot leave a truncated ledger. */
+function persistClaims(): void {
+  try {
+    const tmp = `${CLAIMS_FILE}.tmp`;
+    const data: ClaimRecord = {
+      addresses: [...claimed.addresses],
+      userIds: [...claimed.userIds],
+    };
+    writeFileSync(tmp, JSON.stringify(data, null, 2));
+    renameSync(tmp, CLAIMS_FILE);
+  } catch (e) {
+    // A failed write degrades to in-memory-only for this process rather than failing the
+    // drip that already succeeded. Worth a line in the log, since it means restarts will
+    // re-arm these addresses.
+    console.warn(`[faucet] could not persist claims: ${(e as Error).message}`);
+  }
+}
+
 let sending = false;
 
 export type FaucetResult =
@@ -58,14 +105,16 @@ function wallet(): ethers.Wallet | null {
   return new ethers.Wallet(PRIVATE_KEY, new ethers.JsonRpcProvider(RPC));
 }
 
-export async function dripTo(rawAddress: string): Promise<FaucetResult> {
+export async function dripTo(rawAddress: string, userId?: string | null): Promise<FaucetResult> {
   if (!ethers.isAddress(rawAddress)) return { ok: false, reason: 'Not a valid address.' };
   const to = ethers.getAddress(rawAddress);
+  const uid = typeof userId === 'string' && userId ? userId.slice(0, 128) : null;
 
   const w = wallet();
   if (!w) return { ok: false, reason: 'Faucet is not configured on this server.' };
 
-  if (claimed.has(to)) return { ok: false, reason: 'This wallet has already been funded.' };
+  if (claimed.addresses.has(to)) return { ok: false, reason: 'This wallet has already been funded.' };
+  if (uid && claimed.userIds.has(uid)) return { ok: false, reason: 'This account has already been funded.' };
   if (sending) return { ok: false, reason: 'Faucet is busy — try again in a moment.' };
 
   try {
@@ -81,22 +130,39 @@ export async function dripTo(rawAddress: string): Promise<FaucetResult> {
       return { ok: false, reason: 'Faucet is empty — ask the team to top it up.' };
     }
 
-    // Claim before awaiting the send: two requests for the same address can otherwise
-    // both pass the checks above and each get a drip.
-    claimed.add(to);
+    // Record before awaiting the send, and persist immediately: two requests for the same
+    // address can otherwise both pass the checks above and each get a drip, and a crash
+    // between sending and recording would re-arm the address on restart.
+    claimed.addresses.add(to);
+    if (uid) claimed.userIds.add(uid);
+    persistClaims();
     sending = true;
 
     const tx = await w.sendTransaction({ to, value: DRIP_WEI });
     await tx.wait();
-    console.log(`[faucet] sent ${DRIP_USDC} USDC to ${to} tx=${tx.hash}`);
+    console.log(`[faucet] sent ${DRIP_USDC} USDC to ${to}${uid ? ` (uid ${uid.slice(0, 16)}…)` : ''} tx=${tx.hash}`);
     return { ok: true, txHash: tx.hash, amount: DRIP_USDC.toString() };
   } catch (e) {
-    // A failed send should not burn the address's one claim.
-    claimed.delete(to);
+    // A failed send should not burn the claim.
+    claimed.addresses.delete(to);
+    if (uid) claimed.userIds.delete(uid);
+    persistClaims();
     const msg = e instanceof Error ? e.message : String(e);
     console.warn(`[faucet] send to ${to} failed: ${msg}`);
     return { ok: false, reason: 'Faucet transfer failed. Try again shortly.' };
   } finally {
     sending = false;
+  }
+}
+
+/** Faucet wallet address + balance, for a boot-time log and the /health payload. */
+export async function faucetStatus(): Promise<{ address: string; usdc: string } | null> {
+  const w = wallet();
+  if (!w) return null;
+  try {
+    const bal = await w.provider!.getBalance(w.address);
+    return { address: w.address, usdc: ethers.formatEther(bal) };
+  } catch {
+    return null;
   }
 }
