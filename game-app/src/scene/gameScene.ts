@@ -175,6 +175,8 @@ export class GameScene extends Phaser.Scene {
   private objSprites: { [id: string]: Phaser.GameObjects.Container } = {};
   /** Egg-on-the-ground visual; null while a player is carrying it. */
   private eggSprite: Phaser.GameObjects.Container | null = null;
+  /** Edge-of-screen pointer toward the egg while it's off-camera. Created lazily. */
+  private eggArrow: Phaser.GameObjects.Triangle | null = null;
   private infernoSlowZones: Array<{ x: number; y: number; width: number; height: number }> = [];
   /** Interior room rects (tile coords) produced by the active map builder, used to
    *  scatter furniture/cover inside rooms without blocking doorways. */
@@ -528,6 +530,7 @@ export class GameScene extends Phaser.Scene {
     // hidden-fill but is a no-op in true online MP (which has no bots).
     this.updateAgentBrains(_time);
     this.updateMinimap(_time);
+    this.updateEggArrow();
 
     // The in-game menu freezes the simulation; sprites below still render so the
     // frozen world stays visible behind the overlay.
@@ -1586,11 +1589,30 @@ export class GameScene extends Phaser.Scene {
   private spawnWorldEgg(x: number, y: number) {
     this.destroyWorldEgg();
     const container = this.add.container(x, y);
+
+    // Halo behind the egg, pulsing on its own timing.
+    //
+    // The egg is the entire objective and at 26x34 it read as scenery — people watching
+    // the game could not tell what anyone was running toward. The halo is tweened
+    // separately from the container's bob so the two rhythms don't lock into one motion,
+    // which is what makes it catch the eye instead of looking like part of the sprite.
+    const glow = this.add.ellipse(0, 0, 64, 64, 0xfacc15, 0.22);
+    this.tweens.add({
+      targets: glow,
+      scaleX: 1.5,
+      scaleY: 1.5,
+      alpha: 0.05,
+      duration: 900,
+      ease: 'Sine.Out',
+      yoyo: true,
+      repeat: -1,
+    });
+
     const shadow = this.add.ellipse(0, 14, 28, 10, 0x000000, 0.35);
-    const egg = this.add.ellipse(0, 0, 26, 34, 0xfacc15);
+    const egg = this.add.ellipse(0, 0, 30, 39, 0xfacc15);
     egg.setStrokeStyle(2, 0xfffbeb, 0.95);
-    const highlight = this.add.ellipse(-4, -8, 8, 12, 0xfffbeb, 0.55);
-    container.add([shadow, egg, highlight]);
+    const highlight = this.add.ellipse(-4, -9, 9, 13, 0xfffbeb, 0.55);
+    container.add([glow, shadow, egg, highlight]);
     container.setDepth(y + 50);
     this.tweens.add({
       targets: container,
@@ -1603,9 +1625,63 @@ export class GameScene extends Phaser.Scene {
     this.eggSprite = container;
   }
 
+  /**
+   * Arrow at the screen edge pointing to the egg while it's off-camera.
+   *
+   * The camera follows the player, so on a map bigger than the viewport the egg is
+   * usually somewhere you can't see — leaving new players wandering until they happen
+   * upon it. Fixed to the camera (scrollFactor 0) and clamped inside a margin so it
+   * rides the edge rather than sliding off with the world.
+   */
+  private ensureEggArrow(): Phaser.GameObjects.Triangle {
+    if (!this.eggArrow) {
+      this.eggArrow = this.add
+        .triangle(0, 0, 0, -12, 10, 8, -10, 8, 0xfacc15)
+        .setStrokeStyle(2, 0x7a5b16, 1)
+        .setScrollFactor(0)
+        .setDepth(10_000)
+        .setVisible(false);
+    }
+    return this.eggArrow;
+  }
+
+  private updateEggArrow() {
+    const egg = this.eggSprite;
+    const arrow = this.ensureEggArrow();
+    // Nothing to point at while someone is carrying it — the holder badge does that job.
+    if (!egg) { arrow.setVisible(false); return; }
+
+    const cam = this.cameras.main;
+    const view = cam.worldView;
+    if (view.contains(egg.x, egg.y)) { arrow.setVisible(false); return; }
+
+    const margin = 44;
+    const cx = cam.width / 2;
+    const cy = cam.height / 2;
+    // Direction from the viewport centre to the egg, in screen space.
+    const dx = egg.x - (view.x + view.width / 2);
+    const dy = egg.y - (view.y + view.height / 2);
+    const len = Math.hypot(dx, dy) || 1;
+    const maxX = cx - margin;
+    const maxY = cy - margin;
+    // Scale the direction out to whichever edge it reaches first, so the arrow tracks
+    // the true bearing instead of snapping to a corner.
+    const scale = Math.min(maxX / Math.abs(dx / len), maxY / Math.abs(dy / len));
+
+    arrow
+      .setPosition(cx + (dx / len) * scale, cy + (dy / len) * scale)
+      .setRotation(Math.atan2(dy, dx) + Math.PI / 2)
+      .setVisible(true);
+  }
+
   private destroyWorldEgg() {
+    // Hide rather than destroy: the arrow is reused across every pickup and respawn in a
+    // round, and killTweensOf on the container doesn't reach the halo's own tween, which
+    // the container destroy below takes with it.
+    this.eggArrow?.setVisible(false);
     if (this.eggSprite) {
       this.tweens.killTweensOf(this.eggSprite);
+      this.eggSprite.each((child: Phaser.GameObjects.GameObject) => this.tweens.killTweensOf(child));
       this.eggSprite.destroy();
       this.eggSprite = null;
     }
