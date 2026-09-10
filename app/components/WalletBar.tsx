@@ -31,10 +31,8 @@ const erc20Abi = [
 export function WalletBar() {
   const { address } = useAccount();
   const [copied, setCopied] = useState(false);
-  const [claiming, setClaiming] = useState(false);
-  const [note, setNote] = useState<string | null>(null);
 
-  const { data: balance, refetch } = useReadContract({
+  const { data: balance } = useReadContract({
     address: USDC_ADDRESS,
     abi: erc20Abi,
     functionName: 'balanceOf',
@@ -45,10 +43,12 @@ export function WalletBar() {
   if (!address) return null;
 
   const human = balance !== undefined ? formatUnits(balance as bigint, USDC_DECIMALS) : null;
-  // Below one buy-in there is nothing to do but get funded, so lead with the faucet.
+  // Funding is automatic on sign-in (see AutoFund), so an empty wallet here means the
+  // drip is still confirming — or the faucet is off. Either way it resolves without the
+  // player doing anything, so say so instead of offering an action.
   // Built with BigInt() rather than a 10n literal — the app's TS target predates them.
   const oneUsdc = BigInt(10) ** BigInt(USDC_DECIMALS);
-  const needsFunds = balance !== undefined && (balance as bigint) < oneUsdc;
+  const funding = balance !== undefined && (balance as bigint) < oneUsdc;
 
   const copy = async () => {
     try {
@@ -58,26 +58,6 @@ export function WalletBar() {
     } catch {
       // Clipboard is permission-gated and blocked outright in some embedded views. The
       // address is selectable text either way, so a failure here is not worth an error.
-    }
-  };
-
-  const claim = async () => {
-    setClaiming(true);
-    setNote(null);
-    try {
-      const base = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3001';
-      const res = await fetch(`${base}/arc/faucet`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ address }),
-      });
-      const data = await res.json();
-      setNote(data?.ok ? `Sent ${data.amount} USDC — it'll land in a few seconds.` : (data?.reason ?? 'Faucet failed.'));
-      if (data?.ok) refetch();
-    } catch {
-      setNote('Could not reach the faucet. Is the game server running?');
-    } finally {
-      setClaiming(false);
     }
   };
 
@@ -105,17 +85,11 @@ export function WalletBar() {
         </div>
       </div>
 
-      {needsFunds && (
-        <button
-          onClick={claim}
-          disabled={claiming}
-          className="w-full mt-4 px-6 py-3 bg-[#ffc93c] text-[#1a1a1a] pixel-font font-bold hover:brightness-110 transition disabled:opacity-50"
-        >
-          {claiming ? 'Sending…' : 'Get 2 free USDC'}
-        </button>
+      {funding && (
+        <p className="text-[#f4e7c3]/70 text-sm mt-3">
+          Setting you up with USDC — this takes a few seconds.
+        </p>
       )}
-
-      {note && <p className="text-[#f4e7c3]/70 text-sm mt-3">{note}</p>}
     </div>
   );
 }

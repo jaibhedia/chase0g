@@ -18,7 +18,7 @@
  * walletless.
  */
 import { usePrivy } from '@privy-io/react-auth';
-import { ReactNode, createContext, useContext } from 'react';
+import { ReactNode, createContext, useContext, useEffect, useRef } from 'react';
 import { WALLET_ENABLED } from '../providers/WalletProvider';
 
 const WalletAddressContext = createContext<string | null>(null);
@@ -97,9 +97,48 @@ function PrivyGate({ children, onBack }: { children: ReactNode; onBack: () => vo
   // the lobby simply sends no address until it has one.
   return (
     <WalletAddressContext.Provider value={user?.wallet?.address ?? null}>
+      <AutoFund address={user?.wallet?.address ?? null} />
       {children}
     </WalletAddressContext.Provider>
   );
+}
+
+/**
+ * Funds a freshly-created wallet without asking.
+ *
+ * A new player has no USDC and no idea they need any, so there is nothing useful to put
+ * behind a button — a button here is just a step between a player and the thing they came
+ * to do. This fires the moment an address exists and renders nothing.
+ *
+ * Every guard that matters lives on the server (one claim per address, recipient must be
+ * broke, faucet keeps a reserve). The ref here only stops React's double-invoked effects
+ * in development from firing two requests for the same address; the server would refuse
+ * the second anyway.
+ */
+function AutoFund({ address }: { address: string | null }) {
+  const attempted = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!address || attempted.current === address) return;
+    attempted.current = address;
+
+    const base = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3001';
+    fetch(`${base}/arc/faucet`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ address }),
+    })
+      .then((r) => r.json())
+      .then((d) => {
+        if (d?.ok) console.log(`[faucet] funded with ${d.amount} USDC — ${d.txHash}`);
+      })
+      // Silent by design. Every refusal is either "you already have money" or "the faucet
+      // is off", and neither is something to interrupt a player with. If funding did fail
+      // and they are actually broke, the stake panel says so at the point it matters.
+      .catch(() => {});
+  }, [address]);
+
+  return null;
 }
 
 export function MultiplayerAuthGate({

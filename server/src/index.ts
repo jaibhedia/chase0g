@@ -294,6 +294,21 @@ interface SocketData {
   roomCode: string | null;
 }
 
+/**
+ * Second chance to fund a player, on the way into a room.
+ *
+ * The client already fires a drip the moment Privy hands it an address, so this is
+ * usually a no-op that the faucet refuses as already-claimed. It exists because that
+ * client call is the kind of thing that quietly fails -- an ad blocker, a cold server, a
+ * refresh at the wrong moment -- and the failure would only surface as a player who
+ * cannot afford the match they just joined. Fire-and-forget: nobody waits on a faucet to
+ * enter a lobby.
+ */
+function fundInBackground(address: string | null): void {
+  if (!address || !faucetEnabled) return;
+  dripTo(address).catch(() => { /* every real refusal is already logged by the faucet */ });
+}
+
 io.on('connection', (socket: Socket<any, any, any, SocketData>) => {
   socket.data.userId = null;
   socket.data.roomCode = null;
@@ -322,6 +337,7 @@ io.on('connection', (socket: Socket<any, any, any, SocketData>) => {
       socket_id: socket.id,
       wallet_address: cleanAddress((data as { walletAddress?: unknown })?.walletAddress),
     };
+    fundInBackground(player.wallet_address);
     rooms.set(roomCode, {
       mapId: data.mapId || 'map-1',
       isPublic: data.isPublic !== false,
@@ -380,6 +396,7 @@ io.on('connection', (socket: Socket<any, any, any, SocketData>) => {
         socket_id: socket.id,
         wallet_address: cleanAddress((data as { walletAddress?: unknown })?.walletAddress),
       });
+      fundInBackground(room.players[room.players.length - 1].wallet_address);
     }
     socket.data.userId = data.userId;
     socket.data.roomCode = data.roomCode;
