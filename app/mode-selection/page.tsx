@@ -6,6 +6,7 @@ import { useGameStore } from '../store/gameStore';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Check, User, Users } from 'lucide-react';
+import { HowToPlay } from '../components/HowToPlay';
 
 export default function ModeSelection() {
   const router = useRouter();
@@ -28,6 +29,9 @@ export default function ModeSelection() {
   };
 
   return (
+    <>
+    {/* First visit only — explains the chase and the stake before a mode is picked. */}
+    <HowToPlay />
     <main
       className="h-screen h-[100dvh] w-full flex flex-col overflow-y-auto px-solid-bg py-4 relative"
       style={{
@@ -178,5 +182,6 @@ export default function ModeSelection() {
         </motion.div>
       </div>
     </main>
+    </>
   );
 }

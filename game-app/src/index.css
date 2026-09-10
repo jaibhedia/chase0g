@@ -51,6 +51,27 @@ html, body, #root {
 }
 .px-shadow { text-shadow: 3px 3px 0 #11111c; }
 
+/**
+ * In-play HUD variant of the wood chips and panels.
+ *
+ * The menu styling is deliberately heavy — solid wood, 3–4px borders, inset bevels —
+ * which reads well on a menu and badly over a live game, where the top row of panels
+ * walls off a strip of the world the player is trying to move through. This keeps the
+ * same pixel language but lets the arena show through, and thins the bevel so the panel
+ * stops competing with the sprites.
+ *
+ * Applied alongside .px-chip / .px-panel, so removing it anywhere restores the solid
+ * menu look with no other change.
+ */
+.hud-lite {
+  background: color-mix(in srgb, var(--wood-bg) 70%, transparent);
+  border-width: 2px;
+  box-shadow:
+    inset 2px 2px 0 0 color-mix(in srgb, var(--wood-light) 55%, transparent),
+    inset -2px -2px 0 0 color-mix(in srgb, var(--wood-dark) 55%, transparent);
+  backdrop-filter: blur(2px);
+}
+
 /* Subtle CRT scanlines over the game (lighter than the menus to keep play clear). */
 .scanlines {
   position: fixed;

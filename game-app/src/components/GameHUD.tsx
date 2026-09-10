@@ -60,7 +60,7 @@ export default function GameHUD() {
         <div className="relative flex min-h-[44px] items-start justify-between">
           <div className="pointer-events-none flex max-w-[42%] flex-col gap-2 sm:max-w-none sm:flex-row sm:items-center">
             <div
-              className="pointer-events-none flex items-center gap-1.5 px-chip px-2 py-1 sm:gap-2 sm:px-3 sm:py-2"
+              className="pointer-events-none flex items-center gap-1.5 px-chip hud-lite px-2 py-1 sm:gap-2 sm:px-3 sm:py-2"
               style={hasEgg ? { background: '#ffc93c' } : undefined}
             >
               <Egg className="w-3 h-3 shrink-0 sm:w-4 sm:h-4" aria-hidden style={{ color: hasEgg ? '#2b2410' : '#f4e7c3' }} />
@@ -75,14 +75,14 @@ export default function GameHUD() {
 
             {/* Controls hint (desktop) — left header, before the AI·0G pill. */}
             {!isMobile && (
-              <div className="pointer-events-none flex items-center gap-3 px-chip px-3 py-2">
+              <div className="pointer-events-none flex items-center gap-3 px-chip hud-lite px-3 py-2">
                 <p className="px-heading text-[9px] tracking-wider text-[#f4e7c3]">WASD/ARROWS</p>
               </div>
             )}
 
             {/* 0G Compute status — the criterion #01 proof, on screen. Green = agent
                 brains are running live on 0G; red = scripted fallback (0G offline). */}
-            <div className="pointer-events-none flex items-center gap-1.5 px-chip px-2 py-1 sm:gap-2 sm:px-3 sm:py-2">
+            <div className="pointer-events-none flex items-center gap-1.5 px-chip hud-lite px-2 py-1 sm:gap-2 sm:px-3 sm:py-2">
               <span
                 className="inline-block h-2 w-2 shrink-0 rounded-full sm:h-2.5 sm:w-2.5"
                 style={{
@@ -99,7 +99,7 @@ export default function GameHUD() {
           </div>
 
           <div className="pointer-events-none absolute left-1/2 top-0 -translate-x-1/2">
-            <div className="flex flex-col items-center px-panel px-3 py-1 sm:px-5 sm:py-1.5">
+            <div className="flex flex-col items-center px-panel hud-lite px-3 py-1 sm:px-5 sm:py-1.5">
               <span className="px-heading text-[7px] uppercase tracking-[0.2em] text-[#9fb0d8] sm:text-[8px]">
                 Time left
               </span>
@@ -127,7 +127,7 @@ export default function GameHUD() {
           (no world-space overlap) showing each agent's current 0G-chosen tactic +
           latest taunt. Greys to "scripted" when 0G is offline. */}
       {!isMobile && agents.length > 0 && (
-        <div className="pointer-events-none fixed bottom-6 left-6 z-[55] w-[190px] px-panel px-3 py-2">
+        <div className="pointer-events-none fixed bottom-6 left-6 z-[55] w-[190px] px-panel hud-lite px-3 py-2">
           <div className="mb-1.5 flex items-center gap-1.5">
             <span
               className="inline-block h-2 w-2 rounded-full"
