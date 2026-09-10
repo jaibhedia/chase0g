@@ -18,8 +18,24 @@
  * walletless.
  */
 import { usePrivy } from '@privy-io/react-auth';
-import { ReactNode } from 'react';
+import { ReactNode, createContext, useContext } from 'react';
 import { WALLET_ENABLED } from '../providers/WalletProvider';
+
+const WalletAddressContext = createContext<string | null>(null);
+
+/**
+ * The signed-in player's Arc address, or null when there isn't one.
+ *
+ * Components below the gate can't call `useAccount`/`usePrivy` directly: with no Privy
+ * app id neither provider is mounted and both throw. The gate already branches on that,
+ * so it publishes the address here and everything downstream reads it unconditionally.
+ *
+ * The lobby sends this to the server on create/join, which is what lets settlement turn
+ * the winning userId back into a payable address at match end.
+ */
+export function useWalletAddress(): string | null {
+  return useContext(WalletAddressContext);
+}
 
 function Screen({ children }: { children: ReactNode }) {
   return (
@@ -39,7 +55,7 @@ function Screen({ children }: { children: ReactNode }) {
  * mounted PrivyProvider — see WALLET_ENABLED.
  */
 function PrivyGate({ children, onBack }: { children: ReactNode; onBack: () => void }) {
-  const { ready, authenticated, login } = usePrivy();
+  const { ready, authenticated, login, user } = usePrivy();
 
   // Privy restores an existing session asynchronously. Rendering the sign-in button
   // during that window would flash "sign in" at players who already are.
@@ -76,7 +92,14 @@ function PrivyGate({ children, onBack }: { children: ReactNode; onBack: () => vo
     );
   }
 
-  return <>{children}</>;
+  // Embedded wallets are provisioned on login, but `user.wallet` can still be briefly
+  // absent on the first render after sign-in. Publishing null for that tick is correct:
+  // the lobby simply sends no address until it has one.
+  return (
+    <WalletAddressContext.Provider value={user?.wallet?.address ?? null}>
+      {children}
+    </WalletAddressContext.Provider>
+  );
 }
 
 export function MultiplayerAuthGate({

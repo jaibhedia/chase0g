@@ -9,7 +9,7 @@ import { gameMaps } from '../data/maps';
 import { characters } from '../data/characters';
 import { ArrowLeft, ArrowRight, Check, Globe, Lock, Play } from 'lucide-react';
 import { RankedStakePanel } from '../components/RankedStakePanel';
-import { MultiplayerAuthGate } from '../components/MultiplayerAuthGate';
+import { MultiplayerAuthGate, useWalletAddress } from '../components/MultiplayerAuthGate';
 
 /**
  * Sign-in is handled by the gate wrapping this component, so everything below can assume
@@ -21,6 +21,8 @@ function MultiplayerLobbyInner() {
   const router = useRouter();
   const { selectedCharacter, selectedMap, gameMode, setMap, setCharacter: setStoreCharacter, setServerStartTime, setRoomPlayers, setRoomCode: setStoreRoomCode, roomCode: canonicalRoomCode, setMultiplayerHiddenFill, userId: storeUserId, initUserId } = useGameStore();
   const { socket, createRoom, joinRoom, setPlayerReady, chooseCharacter, startGame, leaveRoom } = useSocket();
+  // Published by the gate above, so this is safe whether or not Privy is configured.
+  const walletAddress = useWalletAddress();
 
   const [roomCode, setRoomCode] = useState('');
   const [isCreating, setIsCreating] = useState(false);
@@ -282,7 +284,11 @@ function MultiplayerLobbyInner() {
         gameMode: 'multiplayer',
         characterId: parseInt(character.id.split('-')[1]),
         playerName: character.name,
-        isPublic // Pass the public/private flag
+        isPublic, // Pass the public/private flag
+        // Recorded server-side so a win can be paid out to this wallet. Sent at create
+        // rather than at stake time: the payout target should be on file before the
+        // match starts, not only for players who reached the staking step.
+        walletAddress: walletAddress ?? undefined,
       });
 
       setRoomCode(response.roomCode);
@@ -327,7 +333,8 @@ function MultiplayerLobbyInner() {
         roomCode: roomCode.toUpperCase(),
         userId,
         characterId: parseInt(character.id.split('-')[1]),
-        playerName: character.name
+        playerName: character.name,
+        walletAddress: walletAddress ?? undefined,
       });
 
       setStoreRoomCode(roomCode.toUpperCase()); // persist for reconnect + voice in-game
@@ -379,7 +386,8 @@ function MultiplayerLobbyInner() {
         roomCode: publicRoomCode,
         userId,
         characterId: parseInt(character.id.split('-')[1]),
-        playerName: character.name
+        playerName: character.name,
+        walletAddress: walletAddress ?? undefined,
       });
 
       setIsInRoom(true);

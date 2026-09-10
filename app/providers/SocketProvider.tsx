@@ -16,12 +16,16 @@ interface SocketContextType {
     isPublic?: boolean;
     maxPlayers?: number;
     gameTime?: number;
+    /** Arc wallet to pay out to if this player wins. See LobbyPlayer.wallet_address. */
+    walletAddress?: string;
   }) => Promise<any>;
   joinRoom: (data: {
     roomCode: string;
     userId: string;
     characterId: number;
     playerName?: string;
+    /** Arc wallet to pay out to if this player wins. See LobbyPlayer.wallet_address. */
+    walletAddress?: string;
   }) => Promise<any>;
   setPlayerReady: (isReady: boolean, roomCode?: string, userId?: string) => void;
   chooseCharacter: (characterId: number, playerName: string, roomCode: string, userId: string) => void;
@@ -107,6 +111,7 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     characterId: number;
     playerName?: string;
     isPublic?: boolean;
+    walletAddress?: string;
   }) => {
     return new Promise((resolve, reject) => {
       if (!socketRef.current) {
@@ -147,6 +152,7 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     userId: string;
     characterId: number;
     playerName?: string;
+    walletAddress?: string;
   }) => {
     return new Promise((resolve, reject) => {
       if (!socketRef.current) {

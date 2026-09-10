@@ -25,6 +25,7 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
+import { ethers } from 'ethers';
 import { Server, type Socket } from 'socket.io';
 import { decideIntents, forgetRoom, getTranscript, type AgentSnapshot } from './agents/agentBrain';
 import { aiEnabled, getAiClient, AI_MODEL, aiProviderName } from './ai/provider';
@@ -46,6 +47,18 @@ interface LobbyPlayer {
   /** Live connection bookkeeping for reconnect + voice routing. */
   connected: boolean;
   socket_id: string;
+  /**
+   * The player's Arc wallet, captured at join so settlement can find it later.
+   *
+   * The match-end payload comes from the game scene, which is a separate app with no
+   * wallet of its own — its `winner` is `{ id, name, userId, eggHoldCount }`. Without
+   * this field there is no way to turn the winning userId into a payable address, and
+   * settleMatch rejects a missing one, so every ranked pot would sit unsettled until
+   * the refund window regardless of whether the settlement key was configured.
+   *
+   * Null for Free Play and for anyone who reached the room without a wallet.
+   */
+  wallet_address: string | null;
 }
 
 interface Room {
@@ -82,8 +95,15 @@ function genRoomCode(): string {
   return code;
 }
 
-/** Public-facing player shape (drops internal bookkeeping fields). */
-function publicPlayers(room: Room): Array<Omit<LobbyPlayer, 'graceTimers'>> {
+/**
+ * Public-facing player shape (drops internal bookkeeping fields).
+ *
+ * `wallet_address` stays out deliberately. This projection is broadcast to everyone in
+ * the room, and no client needs another player's payout address to render the lobby —
+ * settlement resolves it server-side. Anyone who genuinely wants the staked addresses
+ * can read them from the escrow, which is the appropriate place for that to be public.
+ */
+function publicPlayers(room: Room): Array<Omit<LobbyPlayer, 'graceTimers' | 'wallet_address'>> {
   return room.players.map((p) => ({
     id: p.id,
     player_name: p.player_name,
@@ -132,6 +152,17 @@ function cleanNum(v: unknown, min: number, max: number): number {
   const n = Number(v);
   if (!Number.isFinite(n)) return 0;
   return Math.min(max, Math.max(min, n));
+}
+/**
+ * Checksum-normalized EVM address, or null.
+ *
+ * Normalizing on the way in matters because this value is later compared against the
+ * escrow's own player list, and `getAddress` is the only thing that makes a lowercase
+ * client string and a checksummed on-chain one compare equal.
+ */
+function cleanAddress(v: unknown): string | null {
+  if (typeof v !== 'string' || !ethers.isAddress(v)) return null;
+  return ethers.getAddress(v);
 }
 
 /** True only if this socket is a live member of a real `roomCode` — the core guard that
@@ -261,6 +292,7 @@ io.on('connection', (socket: Socket<any, any, any, SocketData>) => {
       character_id: cleanNum(data.characterId, 1, 4) || 1,
       connected: true,
       socket_id: socket.id,
+      wallet_address: cleanAddress((data as { walletAddress?: unknown })?.walletAddress),
     };
     rooms.set(roomCode, {
       mapId: data.mapId || 'map-1',
@@ -318,6 +350,7 @@ io.on('connection', (socket: Socket<any, any, any, SocketData>) => {
         character_id: resolveCharacter(room, data.characterId),
         connected: true,
         socket_id: socket.id,
+        wallet_address: cleanAddress((data as { walletAddress?: unknown })?.walletAddress),
       });
     }
     socket.data.userId = data.userId;
@@ -593,7 +626,23 @@ io.on('connection', (socket: Socket<any, any, any, SocketData>) => {
       // Arc — pay out the USDC pot for ranked matches. Safe to call unconditionally:
       // a Free Play room has no on-chain match, so this no-ops. The replay root links
       // the payout to the recorded match and its AI decision transcript.
-      const settled = await settleMatch(rc, payload?.result?.winner?.address, uploaded?.rootHash ?? '');
+      //
+      // The address is resolved here rather than taken from the payload. The payload is
+      // built by the game scene, a separate app with no wallet, so `winner.address` is
+      // always undefined -- settleMatch would reject it and every pot would sit
+      // unsettled until refund. What the scene does carry is `winner.userId`, which maps
+      // to the wallet captured when that player joined the room.
+      const winnerUserId = payload?.result?.winner?.userId;
+      const winnerAddress =
+        rooms.get(rc)?.players.find((p) => p.user_id === winnerUserId)?.wallet_address ?? null;
+      if (arcEnabled && !winnerAddress) {
+        console.warn(
+          `[arc] no wallet on record for winner userId=${winnerUserId ?? 'unknown'} in room=${rc} — ` +
+          'pot stays escrowed until the refund window. The winner joined without a wallet, ' +
+          'or the room predates wallet capture.',
+        );
+      }
+      const settled = await settleMatch(rc, winnerAddress, uploaded?.rootHash ?? '');
 
       const result: StoredReplay = {
         rootHash: uploaded?.rootHash ?? null,
