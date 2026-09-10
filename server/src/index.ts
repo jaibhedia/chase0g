@@ -32,6 +32,7 @@ import { aiEnabled, getAiClient, AI_MODEL, aiProviderName } from './ai/provider'
 import { uploadReplay, ogStorageEnabled } from './og/storage';
 import { submitMatch, getRecent, ogChainEnabled, ogChainReadEnabled } from './og/chain';
 import { settleMatch, getArcMatch, arcEnabled, arcReadEnabled } from './arc/chaseStake';
+import { dripTo, faucetEnabled } from './arc/faucet';
 
 const PORT = Number(process.env.SOCKET_PORT || process.env.PORT || 3001);
 /** How long a disconnected player's slot is held open for them to come back. */
@@ -212,6 +213,9 @@ app.use(helmet());
 app.use(cors({ origin: corsOrigin, credentials: true }));
 // Basic abuse guard on the HTTP routes (the socket has its own per-action limiter).
 app.use(rateLimit({ windowMs: 60_000, max: 120, standardHeaders: true, legacyHeaders: false }));
+// Needed by POST /arc/faucet — without it req.body is undefined. Capped small: the only
+// POST body this server takes is a single address.
+app.use(express.json({ limit: '4kb' }));
 app.get('/', (_req, res) => {
   res.type('text/plain').send('chase socket ok');
 });
@@ -228,6 +232,30 @@ app.get('/health', (_req, res) => {
 // Arc — live escrow state for a room, so the lobby can show the pot building up and the
 // results screen can link the payout. Returns { staked: false } for Free Play rooms,
 // which have no on-chain match at all.
+/**
+ * Fund a new player's embedded wallet so they can actually enter a ranked match.
+ *
+ * Tighter rate limit than the global one: this endpoint spends money. The per-address
+ * single-claim rule lives in the faucet module; this only bounds how hard one IP can
+ * hammer it while probing for addresses that haven't claimed yet.
+ */
+const faucetLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 6,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.post('/arc/faucet', faucetLimiter, async (req, res) => {
+  if (!faucetEnabled) {
+    res.status(503).json({ ok: false, reason: 'Faucet is not configured on this server.' });
+    return;
+  }
+  const result = await dripTo(String((req.body as { address?: unknown })?.address ?? ''));
+  // 400 rather than 500 on refusal: every reason the faucet says no (already claimed,
+  // already funded, empty) is a fact about the request, not a server failure.
+  res.status(result.ok ? 200 : 400).json(result);
+});
+
 app.get('/arc/match/:roomCode', async (req, res) => {
   const roomCode = String(req.params.roomCode || '').slice(0, 32);
   if (!arcReadEnabled) { res.json({ enabled: false, staked: false, match: null }); return; }

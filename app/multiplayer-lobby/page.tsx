@@ -10,6 +10,7 @@ import { characters } from '../data/characters';
 import { ArrowLeft, ArrowRight, Check, Globe, Lock, Play } from 'lucide-react';
 import { RankedStakePanel } from '../components/RankedStakePanel';
 import { MultiplayerAuthGate, useWalletAddress } from '../components/MultiplayerAuthGate';
+import { WalletBar } from '../components/WalletBar';
 
 /**
  * Sign-in is handled by the gate wrapping this component, so everything below can assume
@@ -498,6 +499,10 @@ function MultiplayerLobbyInner() {
           <h1 className="text-2xl md:text-4xl font-bold text-white text-center mb-8">
             Multiplayer Lobby
           </h1>
+
+          {/* Address + balance + faucet, before create/join: a player who just signed in
+              has an empty embedded wallet, and this is where they find out and fix it. */}
+          <WalletBar />
 
           <div className="grid md:grid-cols-3 gap-6 mb-8">
             {/* Create Room */}
