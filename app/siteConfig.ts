@@ -10,10 +10,21 @@ const DEFAULT_URL = 'https://chase.abstractstudio.in';
 
 export const siteConfig = {
   name: 'Chase Dinosaurs',
-  title: 'Chase Dinosaurs — Real-Time Multiplayer Chase Game',
+  /**
+   * Title and description lead with the egg and the pot, in that order.
+   *
+   * The previous copy described a browser tag game and never mentioned USDC, Arc or
+   * staking — so the first thing a crawler, a link preview or a judge read said nothing
+   * about the part that makes this different from any other .io game. It also never said
+   * what winning means, which is the same reason people watching the gameplay assumed it
+   * was a racing game.
+   *
+   * Kept near 60 / 155 characters so neither is truncated in search results.
+   */
+  title: 'Chase Dinosaurs — Multiplayer Chase Game with USDC Stakes',
   description:
-    'A fast-paced 16-bit multiplayer chase game. Top-down tag — one player is the chaser, ' +
-    'everyone else runs. 30-second rounds, 6 characters, unique power-ups. Play free in your browser.',
+    'Grab the egg and survive the chase. Real-time 16-bit multiplayer where ranked ' +
+    'matches escrow USDC on Arc — winner takes the pot. Free to play in your browser.',
   /** Canonical production origin (no trailing slash). */
   url: (process.env.NEXT_PUBLIC_SITE_URL || DEFAULT_URL).replace(/\/+$/, ''),
   keywords: [
@@ -27,6 +38,14 @@ export const siteConfig = {
     'free online game',
     'phaser game',
     'chase game',
+    // The on-chain half. Without these the site is invisible to anyone searching for
+    // what actually distinguishes it.
+    'usdc game',
+    'crypto game',
+    'web3 game',
+    'play to earn',
+    'arc network',
+    'onchain gaming',
   ],
   authors: [{ name: 'Shantanu Swami', url: 'https://x.com/ShantanuSwami11' }],
   creator: 'Shantanu Swami',

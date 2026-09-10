@@ -59,14 +59,31 @@ Three parts, each self-contained:
 
 Copy `.env.example` to `.env.local` and fill in:
 
-```bash
-# Supabase — https://supabase.com/dashboard
-NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=
+**`.env.local`** (the Next shell — these ship to the browser, so nothing secret):
 
-# Socket.io backend URL
+```bash
 NEXT_PUBLIC_SOCKET_URL=http://localhost:3001
+NEXT_PUBLIC_PRIVY_APP_ID=            # https://dashboard.privy.io — without it, ranked play is disabled
+NEXT_PUBLIC_ARC_TESTNET_RPC_URL=https://rpc.testnet.arc.network
+NEXT_PUBLIC_ARC_CHASESTAKE_ADDRESS=0xD648def45026f437351D797dC3574fa97507BA83
 ```
+
+**`server/.env`** (never committed — see `server/.env.example` for the annotated version):
+
+```bash
+ARC_PRIVATE_KEY=        # settlement authority; the wallet ChaseStake records as `server`
+FAUCET_PRIVATE_KEY=     # SEPARATE wallet that drips 2 USDC to each new player
+OG_ROUTER_API_KEY=      # 0G Compute — without it agents fall back to scripted play
+OG_PRIVATE_KEY=         # funded 0G Galileo wallet: storage uploads + leaderboard writes
+OG_LEADERBOARD_ADDRESS= # from `node contracts/deploy.mjs`
+```
+
+The faucet and settlement keys are deliberately different wallets: the faucet gives money to
+anyone who asks, while the settlement key holds the escrow's authority. One wallet for both
+means a drained faucet is also a match that cannot pay out.
+
+Each key degrades to a no-op rather than crashing, so the server boots with none of them —
+it just logs which features are off. Check the boot lines to see what's live.
 
 ---
 
@@ -89,17 +106,41 @@ npm run dev          # http://localhost:3000
 # Terminal 2 — Vite + Phaser game
 npm run dev:game     # http://localhost:5173
 
-# Terminal 3 — Express + Socket.IO backend (only needed for multiplayer)
+# Terminal 3 — Express + Socket.IO backend (multiplayer, staking, faucet, 0G)
 npm run socket:dev   # http://localhost:3001
 ```
 
 Open [http://localhost:3000](http://localhost:3000) and start a match.
+
+**All three are required.** Terminal 2 is not optional in dev: `/game` points at
+`localhost:5173`, and if that server isn't up the game page 404s with no error explaining
+why. Terminal 3 is required for anything multiplayer, staked, or AI.
+
+Verify everything is actually live before testing — the socket server prints what it can do:
+
+```
+[ai]     Provider ready → 0G Compute (model: qwen2.5-omni)
+[arc]    ChaseStake ready → 0xD648…BA83
+[faucet] 0xe49a…9EfA holds 20.00 USDC — roughly 9 more players
+```
+
+Any line that says *disabled* or *not configured* is a missing key, not a bug.
+
+### Testing two players
+
+Use **two different browser profiles** (a normal window and an incognito one), not two tabs.
+Tabs share one Privy session, so you would be playing yourself from a single wallet. Sign in
+with a different email in each; both are funded automatically on first sign-in.
 
 ### Production build
 
 ```bash
 npm run build:all    # builds game-app (base=/game-app/), copies dist → public/game-app, then next build
 ```
+
+**Use `build:all`, never plain `npm run build`.** `build` compiles only the Next shell and
+leaves `public/game-app/` empty, producing a site that looks fine until someone presses Play
+and gets a 404 — with nothing in the build output warning you.
 
 The game is served from `/game-app/index.html` on the **same domain** as the shell. The shell auto-
 targets that path in production (no env needed); the game uses same-origin relative paths to return
