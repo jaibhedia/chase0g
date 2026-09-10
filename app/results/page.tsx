@@ -16,6 +16,10 @@ interface ReplayInfo {
   transcriptLen: number;
   ogStorageEnabled: boolean;
   ogChainEnabled: boolean;
+  /** The settled Arc pot: payout tx, amount in USDC, and an explorer link. */
+  arcTxHash: string | null;
+  arcPot: string | null;
+  arcExplorer: string | null;
 }
 /** One row of the on-chain leaderboard (read from the ChaseLeaderboard contract). */
 interface LeaderboardRow {
@@ -405,6 +409,41 @@ export default function Results() {
             </p>
           </motion.div>
         </motion.div>
+
+        {/* The payout. This is the whole product in one panel: real USDC moved between
+            two strangers because of what happened in a game, with a link to the
+            transaction that proves it. It sits above the replay artifact deliberately —
+            a player (or a judge) should meet the money before anything else. */}
+        {replay?.arcTxHash && replay.arcPot && (
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.15 }}
+            className="mt-6 p-6 pixel-panel text-center"
+          >
+            <p className="text-[#ffc93c] text-sm mb-2">
+              {playerWon ? 'You won the pot' : 'Pot paid out'}
+            </p>
+            <p className="text-4xl md:text-5xl font-bold text-[#f4e7c3] mb-1">
+              {replay.arcPot} USDC
+            </p>
+            <p className="text-[#f4e7c3]/60 text-sm mb-4">
+              {playerWon
+                ? 'Settled on Arc and sent to your wallet.'
+                : `Settled on Arc and sent to ${winner?.character?.name ?? 'the winner'}.`}
+            </p>
+            {replay.arcExplorer && (
+              <a
+                href={replay.arcExplorer}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-block px-5 py-2 bg-[#ffc93c] text-[#1a1a1a] pixel-font font-bold text-sm hover:brightness-110 transition"
+              >
+                View the transaction
+              </a>
+            )}
+          </motion.div>
+        )}
 
         {/* Verifiable replay on 0G Storage — the criterion #01 artifact made tangible:
             the match (result + the REAL AI decision transcript) is addressable by an

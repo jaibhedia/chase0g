@@ -507,7 +507,7 @@ io.on('connection', (socket: Socket<any, any, any, SocketData>) => {
     io.to(rc).emit('player-joined', { players: publicPlayers(room), currentPlayers: room.players.length });
   });
 
-  socket.on('start-game', () => {
+  socket.on('start-game', async () => {
     const rc = socket.data.roomCode;
     if (!rc) return;
     const room = rooms.get(rc);
@@ -518,6 +518,43 @@ io.on('connection', (socket: Socket<any, any, any, SocketData>) => {
     //   socket.emit('error', { message: 'Need at least 2 players to start.' });
     //   return;
     // }
+
+    /**
+     * Refuse to start a staked match that someone hasn't paid into.
+     *
+     * settle() is `onlyServer` and reverts with WinnerNotInMatch for an address that
+     * never joined the escrow, so an unstaked player winning doesn't steal anything --
+     * it does something quieter and worse. The payout reverts, the pot stays locked for
+     * the full REFUND_DELAY, and the player who *did* stake just watches their USDC sit
+     * there. Nothing in the UI would explain why.
+     *
+     * Only rooms with a real on-chain match are checked, so Free Play and unconfigured
+     * setups start exactly as before.
+     */
+    if (arcReadEnabled) {
+      try {
+        const match = await getArcMatch(rc);
+        if (match) {
+          const staked = new Set(match.players.map((p) => p.toLowerCase()));
+          const missing = room.players.filter(
+            (p) => !p.wallet_address || !staked.has(p.wallet_address.toLowerCase()),
+          );
+          if (missing.length > 0) {
+            socket.emit('error', {
+              message:
+                missing.length === room.players.length
+                  ? 'Everyone needs to stake before the match can start.'
+                  : `Waiting on ${missing.map((p) => p.player_name).join(', ')} to stake.`,
+            });
+            return;
+          }
+        }
+      } catch (err) {
+        // A flaky RPC read shouldn't strand a lobby that may not even be staked. Start
+        // the match and let settlement report the truth at the end.
+        console.warn(`[arc] stake check failed for room=${rc}: ${(err as Error).message}`);
+      }
+    }
 
     room.started = true;
     room.serverStartTime = Date.now();

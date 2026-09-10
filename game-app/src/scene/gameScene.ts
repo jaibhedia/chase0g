@@ -2962,6 +2962,12 @@ export class GameScene extends Phaser.Scene {
           transcriptLen: payload.transcriptLen ?? 0,
           ogStorageEnabled: !!payload.ogStorageEnabled,
           ogChainEnabled: !!payload.ogChainEnabled,
+          // The settled pot. The server has always sent these three and this handler
+          // dropped them on the floor, which is the whole reason a winner never saw that
+          // they'd been paid — the payout happened on-chain and the UI never heard.
+          arcTxHash: payload.arcTxHash ?? null,
+          arcPot: payload.arcPot ?? null,
+          arcExplorer: payload.arcExplorer ?? null,
         };
         useGameStore.getState().setReplay(info);
         // Persist for the (separate) results page, which is a fresh cross-origin load.
