@@ -15,8 +15,10 @@
  */
 import { useState } from 'react';
 import { useAccount, useReadContract } from 'wagmi';
+import { usePrivy } from '@privy-io/react-auth';
 import { formatUnits } from 'viem';
 import { USDC_ADDRESS, USDC_DECIMALS } from '@/lib/arc/chaseStake';
+import { WALLET_ENABLED } from '../providers/WalletProvider';
 
 const erc20Abi = [
   {
@@ -28,8 +30,18 @@ const erc20Abi = [
   },
 ] as const;
 
+/**
+ * Same provider guard as RankedStakePanel: with no Privy app id, neither the Privy nor
+ * the wagmi tree is mounted, and every hook below throws. Branch above the hooks.
+ */
 export function WalletBar() {
+  if (!WALLET_ENABLED) return null;
+  return <WalletBarInner />;
+}
+
+function WalletBarInner() {
   const { address } = useAccount();
+  const { logout } = usePrivy();
   const [copied, setCopied] = useState(false);
 
   const { data: balance } = useReadContract({
@@ -82,6 +94,14 @@ export function WalletBar() {
           <p className="text-2xl font-bold text-[#f4e7c3]">
             {human === null ? '…' : `${Number(human).toFixed(2)} USDC`}
           </p>
+          {/* The only way out of a signed-in session. Needed to switch accounts — for
+              testing two players, and for anyone sharing a machine at a demo table. */}
+          <button
+            onClick={logout}
+            className="mt-1 text-xs text-[#f4e7c3]/50 underline transition hover:text-[#f4e7c3]"
+          >
+            Sign out
+          </button>
         </div>
       </div>
 
