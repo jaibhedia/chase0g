@@ -21,7 +21,7 @@ export const siteConfig = {
    *
    * Kept near 60 / 155 characters so neither is truncated in search results.
    */
-  title: 'Chase Dinosaurs — Multiplayer Chase Game with USDC Stakes',
+  title: 'Chase Dinosaurs | Multiplayer Chase Game with USDC Stakes',
   description:
     'Grab the egg and survive the chase. Real-time 16-bit multiplayer where ranked ' +
     'matches escrow USDC on Arc — winner takes the pot. Free to play in your browser.',

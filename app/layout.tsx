@@ -30,7 +30,9 @@ export const metadata: Metadata = {
   metadataBase: new URL(siteConfig.url),
   title: {
     default: siteConfig.title,
-    template: `%s · ${siteConfig.name}`,
+    // Same separator as the default title, so a subpage tab and the home tab look like
+    // they belong to one site rather than two.
+    template: `%s | ${siteConfig.name}`,
   },
   description: siteConfig.description,
   applicationName: siteConfig.name,
