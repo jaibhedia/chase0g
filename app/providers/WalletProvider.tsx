@@ -54,9 +54,23 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     <PrivyProvider
       appId={PRIVY_APP_ID}
       config={{
-        // Email first: the point is that a player who has never held crypto can still
-        // stake. `users-without-wallets` provisions the embedded wallet on first login.
-        loginMethods: ['email', 'wallet'],
+        /**
+         * Email only — external wallets are deliberately off.
+         *
+         * Allowing 'wallet' looked harmless and broke staking outright. With MetaMask
+         * installed, Privy connects the injected wallet as the active one, so wagmi's
+         * useAccount (and therefore approve/join) targets MetaMask — which has never
+         * heard of Arc, giving "chains are not supported: 5042002" and an approve that
+         * cannot be signed. Worse, the two halves disagreed: the faucet funds
+         * user.wallet (the embedded wallet) while the stake panel spent whatever wagmi
+         * considered active, so the funded wallet and the spending wallet were different
+         * accounts.
+         *
+         * Restricting to email means exactly one wallet exists per player, it is always
+         * on Arc, and it is always the one that got funded. That is also the product:
+         * players who have never held crypto.
+         */
+        loginMethods: ['email'],
         // Privy v3 nests this per chain family — a flat `createOnLogin` is the v2 shape
         // and silently provisions nothing.
         embeddedWallets: { ethereum: { createOnLogin: 'users-without-wallets' } },

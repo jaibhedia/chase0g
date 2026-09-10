@@ -119,14 +119,24 @@ function MultiplayerLobbyInner() {
       setPublicRooms(rooms);
     });
 
-    // Listen for room state response (periodic sync)
+    /**
+     * Periodic room-state sync.
+     *
+     * Compared against `players` from the enclosing closure, which is captured once when
+     * the listener is registered and never updated — so it stayed at the initial [] and
+     * every poll "detected" a desync, logged it, and re-set identical state. Two players
+     * in a lobby produced a DESYNC line and a re-render every 2 seconds, forever.
+     *
+     * The functional updater reads the live value instead, and returns the previous
+     * array when nothing changed so React skips the render entirely. Compared by id
+     * rather than length, since a swap that keeps the count the same is still a change.
+     */
     socket.on('room-state-response', ({ room, players: syncedPlayers }) => {
-      console.log('🔍 Room state response - DB has:', syncedPlayers?.length, 'players');
-      console.log('   Frontend has:', players.length, 'players');
-      if (syncedPlayers && syncedPlayers.length !== players.length) {
-        console.log('⚠️ DESYNC DETECTED! Updating from:', players.length, 'to:', syncedPlayers.length);
-        setPlayers(syncedPlayers);
-      }
+      if (!syncedPlayers) return;
+      setPlayers((prev) => {
+        const sig = (list: any[]) => list.map((p) => `${p.user_id}:${p.character_id}:${p.is_ready}`).join('|');
+        return sig(prev) === sig(syncedPlayers) ? prev : syncedPlayers;
+      });
     });
 
     // Listen for room updates (comprehensive player sync)
