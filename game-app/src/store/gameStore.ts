@@ -140,6 +140,11 @@ interface GameState {
   serverStartTime: number | null;
   roomPlayers: any[];
   roomCode: string | null;
+  /** Socket server origin, handed over by the Next shell at launch. Null when the game
+   *  is opened standalone, in which case SocketProvider falls back to VITE_SOCKET_URL
+   *  and then localhost. Kept out of the bundle at build time on purpose — see
+   *  resolveSocketUrl(). */
+  socketUrl: string | null;
   multiplayerHiddenFill: boolean;
   /** In-game menu open → freeze the simulation. */
   paused: boolean;
@@ -197,6 +202,7 @@ const initialState = {
   serverStartTime: null,
   roomPlayers: [],
   roomCode: null,
+  socketUrl: null,
   multiplayerHiddenFill: false,
   paused: false,
   ogStatus: { live: false, source: 'fallback' as const },

@@ -47,6 +47,9 @@ export default function App() {
       serverStartTime: config.serverStartTime ?? null,
       roomPlayers: config.roomPlayers ?? [],
       roomCode: config.roomCode ?? null,
+      // Travels with the config rather than being inlined at build time, so one
+      // NEXT_PUBLIC_SOCKET_URL configures both the shell and the game.
+      socketUrl: config.socketUrl ?? null,
       multiplayerHiddenFill: config.multiplayerHiddenFill ?? false,
     });
     setReady(true);

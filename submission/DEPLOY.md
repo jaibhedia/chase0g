@@ -96,6 +96,12 @@ NEXT_PUBLIC_SITE_URL               https://chase.abstractstudio.in
 
 All `NEXT_PUBLIC_` — these ship to the browser by design. No secrets here, ever.
 
+> **You do not need `VITE_SOCKET_URL`.** The game is a separate Vite bundle and Vite inlines
+> its env at *build* time, so anything set there is frozen into the artifact. The shell hands
+> the socket URL to the game at launch instead, which makes `NEXT_PUBLIC_SOCKET_URL` the single
+> runtime source of truth for both. (Before this was fixed, a deploy produced a working lobby
+> whose Play button opened a game dialling `localhost:3001` on the *player's* machine.)
+
 Set `NEXT_PUBLIC_SITE_URL` to whatever domain you actually serve. It drives canonical URLs,
 `og:image` and the sitemap; wrong, and every shared link previews against a domain that
 isn't yours.

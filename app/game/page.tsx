@@ -42,6 +42,11 @@ export default function GamePage() {
       roomPlayers: roomPlayers ?? [],
       roomCode: roomCode ?? null,
       multiplayerHiddenFill: multiplayerHiddenFill ?? false,
+      // The game is a separate Vite bundle, and Vite inlines its env at BUILD time — so
+      // a socket URL configured there is frozen into the artifact. Passing it through the
+      // config keeps NEXT_PUBLIC_SOCKET_URL as the single runtime source of truth for
+      // both apps. Without this the deployed game dials localhost on the player's machine.
+      socketUrl: process.env.NEXT_PUBLIC_SOCKET_URL || null,
     });
     // localStorage only works same-origin; in dev the game runs on a different
     // origin (:5173), so also pass the config across via the URL hash. The game

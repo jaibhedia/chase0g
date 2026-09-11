@@ -3,7 +3,29 @@ import { io, Socket } from 'socket.io-client';
 import { useGameStore } from '@/store/gameStore';
 import { setGameSocket } from '@/lib/socketBridge';
 
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3001';
+/**
+ * Where the socket server lives.
+ *
+ * This used to be `import.meta.env.VITE_SOCKET_URL || 'http://localhost:3001'` evaluated at
+ * module scope — and Vite INLINES `import.meta.env.*` at build time. So unless
+ * VITE_SOCKET_URL happened to be set in the shell that ran `npm run build:all`,
+ * `localhost:3001` was compiled into the bundle permanently. The deploy then failed in the
+ * worst possible way: the lobby works (the Next shell reads NEXT_PUBLIC_SOCKET_URL at
+ * runtime), you press Play, and the game tries to open a WebSocket to localhost on the
+ * *player's* machine. Nothing errors server-side; multiplayer is simply dead.
+ *
+ * The shell already hands this app a config blob at launch, so the URL now travels with it.
+ * One source of truth — NEXT_PUBLIC_SOCKET_URL — and nothing about the socket endpoint is
+ * frozen at build time. Resolved lazily inside the connect effect, by which point App has
+ * loaded the config into the store.
+ */
+function resolveSocketUrl(): string {
+  const fromShell = useGameStore.getState().socketUrl;
+  if (fromShell) return fromShell;
+  // Build-time override, for running the game standalone without the Next shell.
+  if (import.meta.env.VITE_SOCKET_URL) return import.meta.env.VITE_SOCKET_URL as string;
+  return 'http://localhost:3001';
+}
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'disconnected';
 
@@ -43,7 +65,7 @@ export function SocketProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!socketRef.current) {
-      socketRef.current = io(SOCKET_URL, {
+      socketRef.current = io(resolveSocketUrl(), {
         autoConnect: true,
         reconnection: true,
         reconnectionAttempts: Infinity,
