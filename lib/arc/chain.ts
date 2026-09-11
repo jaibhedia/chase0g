@@ -41,3 +41,8 @@ export const arcTestnet = defineChain({
 export function arcTxUrl(hash: string): string {
   return `${arcTestnet.blockExplorers.default.url}/tx/${hash}`;
 }
+
+/** Explorer link for a contract or wallet — used to show players where the pot is held. */
+export function arcAddressUrl(address: string): string {
+  return `${arcTestnet.blockExplorers.default.url}/address/${address}`;
+}

@@ -7,6 +7,8 @@ import { audioManager } from '@/app/utils/audioManager';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Home, RotateCcw, Trophy, Crown, Skull, Medal, Target, Star, ThumbsUp, Gamepad2, ShieldCheck, ExternalLink, Cpu, Link2 } from 'lucide-react';
+import { CHASE_STAKE_ADDRESS } from '@/lib/arc/chaseStake';
+import { arcAddressUrl } from '@/lib/arc/chain';
 
 /** 0G Storage replay artifact passed from the game (hash handoff or localStorage). */
 interface ReplayInfo {
@@ -442,6 +444,34 @@ export default function Results() {
                 View the transaction
               </a>
             )}
+
+            {/* Full receipt. The amount alone is a number on a screen; these three lines
+                are what make it checkable by someone who doesn't trust us — which
+                contract held the pot, which chain, and the transaction that released it. */}
+            <div className="mt-4 border-t border-[#f4e7c3]/15 pt-3 text-left text-[10px] leading-relaxed text-[#f4e7c3]/55">
+              <div className="flex justify-between gap-2">
+                <span>Escrow</span>
+                <a
+                  className="truncate text-[#5FCDE4] underline"
+                  href={arcAddressUrl(CHASE_STAKE_ADDRESS)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={CHASE_STAKE_ADDRESS}
+                >
+                  {CHASE_STAKE_ADDRESS.slice(0, 6)}…{CHASE_STAKE_ADDRESS.slice(-4)} ↗
+                </a>
+              </div>
+              <div className="flex justify-between gap-2">
+                <span>Network</span>
+                <span>Arc testnet · 5042002</span>
+              </div>
+              <div className="flex justify-between gap-2">
+                <span>Payout tx</span>
+                <span className="truncate" title={replay.arcTxHash}>
+                  {replay.arcTxHash.slice(0, 6)}…{replay.arcTxHash.slice(-4)}
+                </span>
+              </div>
+            </div>
           </motion.div>
         )}
 

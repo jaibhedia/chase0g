@@ -17,8 +17,8 @@ import { useState } from 'react';
 import { usePrivy } from '@privy-io/react-auth';
 import { parseUnits } from 'viem';
 import { useRankedStake } from '@/app/hooks/useRankedStake';
-import { USDC_DECIMALS } from '@/lib/arc/chaseStake';
-import { arcTxUrl } from '@/lib/arc/chain';
+import { USDC_DECIMALS, CHASE_STAKE_ADDRESS } from '@/lib/arc/chaseStake';
+import { arcTxUrl, arcAddressUrl, ARC_TESTNET_ID } from '@/lib/arc/chain';
 import { WALLET_ENABLED } from '../providers/WalletProvider';
 
 /** Default ranked buy-in. Small on purpose — testnet USDC still has to be fauceted. */
@@ -119,18 +119,52 @@ function RankedStakePanelInner({ roomCode, stake = DEFAULT_STAKE }: PanelProps) 
       {s.step === 'loading' && <Pending>Reading chain…</Pending>}
 
       {error && <p className="mt-2 break-words text-xs text-[#E8503A]">{error}</p>}
-      {txHash && (
-        <a
-          className="mt-2 block text-xs text-[#5FCDE4] underline"
-          href={arcTxUrl(txHash)}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          View on Arcscan ↗
-        </a>
-      )}
+
+      {/* On-chain receipt.
+          A green "you're in" message is indistinguishable from a mock — the whole claim
+          of this project is that the money is really escrowed, and until you can see
+          which contract holds it and open the transaction that put it there, nobody has
+          any reason to believe that. Shows the escrow from the moment the panel loads,
+          not just after a tx, so the destination is visible *before* you commit funds. */}
+      <div className="mt-3 border-t border-[#F4E7C3]/15 pt-2 text-[10px] leading-relaxed text-[#F4E7C3]/55">
+        <div className="flex justify-between gap-2">
+          <span>Escrow</span>
+          <a
+            className="truncate text-[#5FCDE4] underline"
+            href={arcAddressUrl(CHASE_STAKE_ADDRESS)}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={CHASE_STAKE_ADDRESS}
+          >
+            {short(CHASE_STAKE_ADDRESS)} ↗
+          </a>
+        </div>
+        <div className="flex justify-between gap-2">
+          <span>Network</span>
+          <span>Arc testnet · {ARC_TESTNET_ID}</span>
+        </div>
+        {txHash && (
+          <div className="flex justify-between gap-2">
+            <span>Your stake</span>
+            <a
+              className="truncate text-[#5FCDE4] underline"
+              href={arcTxUrl(txHash)}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={txHash}
+            >
+              {short(txHash)} ↗
+            </a>
+          </div>
+        )}
+      </div>
     </Shell>
   );
+}
+
+/** 0x1234…abcd — long enough to compare against an explorer, short enough to fit. */
+function short(v: string): string {
+  return v.length > 14 ? `${v.slice(0, 6)}…${v.slice(-4)}` : v;
 }
 
 /* Reuses the game's own wood panel rather than a lookalike, so the staking UI reads as
