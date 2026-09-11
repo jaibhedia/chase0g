@@ -153,6 +153,65 @@ function withOnChainRecords(roomCode: string, players: AgentSnapshot['players'])
   });
 }
 
+/**
+ * Who gets paid the pot.
+ *
+ * "Last egg holder wins" is the game's rule, and the fill-agents play by it — so an agent
+ * can absolutely be holding the egg when the timer runs out. But an agent has no wallet
+ * and no World ID; it is not a person and there is nobody to pay. The old code resolved
+ * the winning userId against the room roster, got `null` for `agent_0`, and left the pot
+ * escrowed until the one-hour refund window. A ranked match where the bots won simply ate
+ * both players' money for an hour.
+ *
+ * So the human/agent boundary decides who can be paid. Agents compete for the egg; they
+ * cannot take a stake. When one wins, the pot goes to the human who did best by the game's
+ * own scoring — most egg holds — among players who actually staked. Ties break on user id
+ * so the choice is deterministic and reproducible from the match record.
+ *
+ * This is the same boundary World ID enforces at the faucet, applied at the other end of
+ * the money: Selfie Check decides who can be paid *out of* the faucet, and this decides
+ * who can be paid *out of* the escrow. In both cases the question is "is there a person
+ * here", and in both cases the answer has to be something better than "they claimed so".
+ */
+function resolvePayoutAddress(
+  rc: string,
+  payload: any,
+): { address: string | null; reason: string } {
+  const room = rooms.get(rc);
+  if (!room) return { address: null, reason: 'room no longer exists' };
+
+  const winnerUserId = payload?.result?.winner?.userId;
+  const direct = room.players.find((p) => p.user_id === winnerUserId)?.wallet_address ?? null;
+  if (direct) return { address: direct, reason: 'winner' };
+
+  // No wallet for the winner: either an agent took the egg, or a human reached the room
+  // without one. Fall back to the best-scoring staked human.
+  const roster: any[] = Array.isArray(payload?.result?.players) ? payload.result.players : [];
+  const humans = roster
+    .filter((p) => p && !p.isBot && p.userId)
+    .map((p) => ({
+      userId: String(p.userId),
+      holds: Number(p.eggHoldCount) || 0,
+      address: room.players.find((rp) => rp.user_id === String(p.userId))?.wallet_address ?? null,
+    }))
+    .filter((p): p is { userId: string; holds: number; address: string } => Boolean(p.address))
+    .sort((a, b) => b.holds - a.holds || a.userId.localeCompare(b.userId));
+
+  if (humans.length === 0) {
+    return { address: null, reason: 'no staked human with a wallet on record' };
+  }
+
+  const winnerWasAgent = roster.some(
+    (p) => p && p.isBot && String(p.userId ?? '') === String(winnerUserId ?? ''),
+  );
+  return {
+    address: humans[0].address,
+    reason: winnerWasAgent
+      ? `an agent held the egg — pot to best human (${humans[0].holds} holds)`
+      : `winner had no wallet — pot to best human (${humans[0].holds} holds)`,
+  };
+}
+
 /** Find the live socket id for a user in a room (for targeted voice relay). */
 function socketIdFor(room: Room, userId: string): string | null {
   const p = room.players.find((x) => x.user_id === userId && x.connected);
@@ -794,14 +853,16 @@ io.on('connection', (socket: Socket<any, any, any, SocketData>) => {
       // unsettled until refund. What the scene does carry is `winner.userId`, which maps
       // to the wallet captured when that player joined the room.
       const winnerUserId = payload?.result?.winner?.userId;
-      const winnerAddress =
-        rooms.get(rc)?.players.find((p) => p.user_id === winnerUserId)?.wallet_address ?? null;
+      const { address: winnerAddress, reason: payoutReason } = resolvePayoutAddress(rc, payload);
       if (arcEnabled && !winnerAddress) {
         console.warn(
-          `[arc] no wallet on record for winner userId=${winnerUserId ?? 'unknown'} in room=${rc} — ` +
-          'pot stays escrowed until the refund window. The winner joined without a wallet, ' +
-          'or the room predates wallet capture.',
+          `[arc] nobody payable for winner userId=${winnerUserId ?? 'unknown'} in room=${rc} ` +
+          `(${payoutReason}) — pot stays escrowed until the refund window.`,
         );
+      } else if (arcEnabled && payoutReason !== 'winner') {
+        // Worth a line: the wallet being paid is not the player the results screen will
+        // name as the winner, and that discrepancy should be explainable from the logs.
+        console.log(`[arc] room=${rc} payout redirected — ${payoutReason}`);
       }
       // Empty replay root: the settle() signature still takes one, and an empty string is
       // the contract's own "no linked replay" value.
