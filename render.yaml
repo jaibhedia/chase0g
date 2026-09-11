@@ -66,8 +66,13 @@ services:
         value: staging
 
       # --- 0G Compute: agent brains ----------------------------------------
+      # This is the testnet router host, NOT a *.0g.ai domain — an invented-looking
+      # "router.0g.ai" does not resolve, and the OpenAI SDK reports that as a bare
+      # "Connection error." with nothing pointing at DNS. Keep this in sync with
+      # server/.env; if the two ever diverge the symptom is agents that work locally
+      # and silently fall back to scripted steering in production.
       - key: OG_ROUTER_BASE_URL
-        value: https://router.0g.ai/v1
+        value: https://router-api-testnet.integratenetwork.work/v1
       # SECRET. Without it agents fall back to scripted steering and the HUD
       # shows "AI: 0G ○ offline".
       - key: OG_ROUTER_API_KEY
@@ -75,4 +80,4 @@ services:
       - key: OG_MODEL
         value: qwen2.5-omni
       - key: OG_AGENT_TICK_SECONDS
-        value: "5"
+        value: "3.5"

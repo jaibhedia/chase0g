@@ -893,7 +893,11 @@ io.on('connection', (socket: Socket<any, any, any, SocketData>) => {
       // to the wallet captured when that player joined the room.
       const winnerUserId = payload?.result?.winner?.userId;
       const { address: winnerAddress, reason: payoutReason } = resolvePayoutAddress(rc, payload);
-      if (arcEnabled && !winnerAddress) {
+      // Single-player rooms are keyed `solo-<userId>` and never exist in `rooms`, because
+      // nothing was staked and there is nothing to settle. Warning about an unpayable
+      // winner there is noise that reads like a real settlement failure in the logs.
+      const isSolo = rc.startsWith('solo-');
+      if (arcEnabled && !winnerAddress && !isSolo) {
         console.warn(
           `[arc] nobody payable for winner userId=${winnerUserId ?? 'unknown'} in room=${rc} ` +
           `(${payoutReason}) — pot stays escrowed until the refund window.`,
