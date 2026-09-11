@@ -39,6 +39,19 @@ export interface ProximityVoiceOpts {
   minDistance?: number;
   /** Beyond this many px the peer is silent. */
   maxDistance?: number;
+  /**
+   * Room-wide voice: everyone at full volume regardless of distance.
+   *
+   * Default, and deliberately so. The fun of a staked chase is the shouting — calling
+   * out who has the egg, taunting whoever is about to lose the pot — and distance
+   * falloff removes exactly that, because the person you most want to hear is the one
+   * running away from you. It also fails silently: someone across the map sounds
+   * identical to a broken mic, which is a terrible property when a stranger is trying
+   * your game for the first time.
+   *
+   * The proximity maths below is kept intact — set this false to get it back.
+   */
+  roomWide?: boolean;
   onPeersChanged?: (count: number) => void;
 }
 
@@ -49,6 +62,7 @@ export class ProximityVoice {
   private positions: VoicePositionSource;
   private minDistance: number;
   private maxDistance: number;
+  private roomWide: boolean;
   private onPeersChanged?: (count: number) => void;
 
   private localStream: MediaStream | null = null;
@@ -64,6 +78,7 @@ export class ProximityVoice {
     this.positions = opts.positions;
     this.minDistance = opts.minDistance ?? 140;
     this.maxDistance = opts.maxDistance ?? 520;
+    this.roomWide = opts.roomWide ?? true;
     this.onPeersChanged = opts.onPeersChanged;
   }
 
@@ -216,6 +231,16 @@ export class ProximityVoice {
 
   private loop = () => {
     if (!this.running) return;
+
+    // Room-wide: set every peer to full volume once per frame and skip the distance
+    // maths entirely. Cheap enough to leave in the rAF loop, and keeps a single code
+    // path for mute handling and peer teardown.
+    if (this.roomWide) {
+      for (const [, entry] of this.peers) entry.audio.volume = 1;
+      this.rafId = requestAnimationFrame(this.loop);
+      return;
+    }
+
     const me = this.positions.getLocalPosition();
     for (const [peerId, entry] of this.peers) {
       const them = this.positions.getPeerPosition(peerId);

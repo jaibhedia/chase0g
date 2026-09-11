@@ -2210,12 +2210,14 @@ export class GameScene extends Phaser.Scene {
         const target = eggHolder && !eggHolder.isInvincible ? eggHolder : undefined;
         if (target) {
           if (intent.mode === 'intercept') {
-            // Predict where the target is heading and cut it off there.
-            const tv = this.playerVelocity[target.id] || { vx: 0, vy: 0 };
-            this.moveTowards(bot, target.x + tv.vx * 0.6, target.y + tv.vy * 0.6, speed);
+            // Full interception: commit to where the target is going.
+            const aim = this.interceptPoint(bot, target, speed);
+            this.moveTowards(bot, aim.x, aim.y, speed);
           } else {
-            const lead = 0.22;
-            this.moveTowards(bot, target.x + (target.x - bot.x) * lead, target.y + (target.y - bot.y) * lead, speed);
+            // Hunt leads too, but only partway, so the pack doesn't converge on one
+            // predicted point and leave the target a clear lane behind them.
+            const aim = this.interceptPoint(bot, target, speed, 0.6);
+            this.moveTowards(bot, aim.x, aim.y, speed);
           }
         } else if (eggPos) {
           this.moveTowards(bot, eggPos.x, eggPos.y, speed);
@@ -2228,11 +2230,12 @@ export class GameScene extends Phaser.Scene {
         const gy = eggPos.y + Math.sin(this.time.now * 0.0006 + bot.y) * 90;
         this.moveTowards(bot, gx, gy, speed * 0.85);
       } else if (eggHolder && !eggHolder.isInvincible) {
-        // Fallback (roam / no 0G intent): original scripted behavior — converge on the holder.
-        const lead = 0.22;
-        const tx = eggHolder.x + (eggHolder.x - bot.x) * lead;
-        const ty = eggHolder.y + (eggHolder.y - bot.y) * lead;
-        this.moveTowards(bot, tx, ty, speed);
+        // Fallback (roam / no 0G intent): converge on the holder. Leads like hunt does,
+        // so a bot with no intent yet is merely less coordinated than one with a brain,
+        // not visibly broken — this is the path every bot takes for the first few
+        // seconds of a round, before the first strategy tick lands.
+        const aim = this.interceptPoint(bot, eggHolder, speed, 0.6);
+        this.moveTowards(bot, aim.x, aim.y, speed);
       } else if (eggPos) {
         // Egg is on the floor — race for it.
         this.moveTowards(bot, eggPos.x, eggPos.y, speed);
@@ -2338,6 +2341,31 @@ export class GameScene extends Phaser.Scene {
       if (!nearFallback) nearFallback = { x: cx, y: cy };
     }
     return nearFallback ?? { x: ux, y: uy };
+  }
+
+  /**
+   * Where to aim to cut a moving target off, instead of trailing it.
+   *
+   * Both chase branches used to aim at (or just past) where the target *is*. A pursuer
+   * that always steers at the target's current position runs the same path the target
+   * already ran and closes only on the speed difference — which is why the bots looked
+   * stupid: with speeds this close, a fleeing player is never caught, and the bot visibly
+   * swings in behind on every turn instead of cutting the corner.
+   *
+   * `playerVelocity` is per-FRAME displacement, same units as `speed`, so the frames
+   * needed to close the gap is just distance / speed. Aiming at where the target will be
+   * after that many frames is the standard interception solution.
+   *
+   * The cap matters: a slowed bot produces an enormous frame count, and extrapolating a
+   * target's current heading that far predicts a position it will never visit. Past a
+   * point, aiming at the target itself is the better guess.
+   */
+  private interceptPoint(bot: Player, target: Player, speed: number, strength = 1): { x: number; y: number } {
+    if (speed <= 0.0001) return { x: target.x, y: target.y };
+    const tv = this.playerVelocity[target.id] || { vx: 0, vy: 0 };
+    const dist = Math.hypot(target.x - bot.x, target.y - bot.y);
+    const frames = Math.min(dist / speed, 45) * strength;
+    return { x: target.x + tv.vx * frames, y: target.y + tv.vy * frames };
   }
 
   private moveTowards(player: Player, tx: number, ty: number, speed: number) {
