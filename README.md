@@ -1,27 +1,54 @@
-# Chase · Zero — a 0G-native AI agent arena
+# Chase Dinosaurs — 60 seconds, one egg, real USDC
 
-> Built for **The Zero Cup**, 0G's global vibe-coding tournament. Full product spec: [`SPEC.md`](SPEC.md).
+A fast multiplayer chase game. One golden egg; whoever holds it is the target, everyone else
+hunts them. Ranked matches escrow **real USDC on Arc** and the winner takes the pot — and the
+**AI opponents read the chain to decide who to hunt.**
 
-A fast multiplayer "egg-tag" arena where **your opponents are AI agents whose brains run on [0G Compute](https://docs.0g.ai/).** One golden egg; the holder flees, everyone else hunts. Each agent forms its own strategy, has a personality, and trash-talks you in real time — because a real LLM is reasoning about the match on 0G's decentralized inference network.
+> **ETHOnline 2026 — Continuity track.** Submitted to **Arc**, **The Graph**, **Privy** and
+> **World**. Architecture: [`submission/ARCHITECTURE.md`](submission/ARCHITECTURE.md).
 
-### Why 0G is load-bearing (not a bolt-on)
+## What existed before this hackathon
 
-The intelligence of the opponents *is* the product, and 0G produces it:
+Chase was built for **The Zero Cup** (0G's vibe-coding tournament) as a single-player and
+casual-multiplayer chase game with AI opponents. Carried into this event:
 
-- **0G key set** → agents hunt / flee / guard / intercept, coordinate, and taunt. The arena feels alive.
-- **0G key removed** → agents collapse to dumb fallback steering and an **"AI: 0G ○ offline"** pill appears.
+- The Phaser game engine, maps, six characters, power-ups, proximity voice chat
+- Socket.IO rooms, lobby, reconnect handling
+- **0G Compute** agent brains — LLM inference setting each agent's strategy, persona and taunts
 
-That on/off difference is the proof for the tournament's #1 entry rule: *remove 0G and the app is meaningfully different.*
+Original product spec: [`SPEC.md`](SPEC.md). *(0G Storage replays and the 0G Chain leaderboard
+also existed and were **removed** during this event — they produced a second, weaker on-chain
+story competing with the staking one. 0G now does one job: the agent brains.)*
 
-### 0G integration (phased to the tournament rounds)
+## What was built during ETHOnline 2026
 
-| Service | Real work it does | Round |
-|---|---|---|
-| **0G Compute** (Router) | LLM inference sets each agent's strategy + persona + live taunt | JUN 23 |
-| **0G Storage** | Verifiable match replays + the agents' full decision transcript (content root hash shown as proof) | JUN 28 |
-| **0G Chain** (Galileo) | Trustless on-chain leaderboard linking score → replay hash | JUL 4–8 |
+Everything that makes it a staked game, and everything that makes the AI read the chain:
 
-> **0G keys are server-side only** (`server/` env). They are never prefixed `NEXT_PUBLIC_` and never reach the browser bundles or git — a leaked funded key spends real testnet balance. See [`.env.example`](.env.example).
+| Added this event | What it does |
+|---|---|
+| **Arc + `ChaseStake.sol`** | Per-match USDC escrow with join/settle/refund, deployed to Arc testnet |
+| **Privy embedded wallets** | Email sign-in → funded wallet, no extension, no seed phrase |
+| **Automatic USDC faucet** | 2 USDC to every new player so they can afford a buy-in |
+| **The Graph subgraph** | Indexes the escrow — *and feeds the agents their targets* |
+| **World ID Selfie Check** | Proof-of-human gate so one person can't farm the faucet |
+| **Agent threat model** | Agents prioritise players who are up money, read live from the subgraph |
+| **Settlement authority** | Server posts the payout on-chain when a match resolves |
+
+The two integrations worth reading the code for are **[The Graph → agent targeting](#the-graph--the-agents-on-chain-threat-model)**
+and **[World ID → faucet](#world-id--a-faucet-that-cant-be-farmed)**, both below.
+
+### 0G Compute — the agents' brains (pre-existing, still load-bearing)
+
+| Service | Real work it does |
+|---|---|
+| **0G Compute** (Router) | LLM inference sets each agent's strategy, persona and live taunt |
+
+- **0G key set** → agents hunt / flee / guard / intercept, coordinate, and taunt.
+- **0G key removed** → agents collapse to fallback steering and an **"AI: 0G ○ offline"** pill appears.
+
+> **All secrets are server-side only** (`server/` env). Never prefixed `NEXT_PUBLIC_`, never in
+> the browser bundle or git — a leaked funded key spends real testnet balance. See
+> [`server/.env.example`](server/.env.example).
 
 > 🏗️ **[Architecture diagram + match lifecycle →](submission/ARCHITECTURE.md)** — how the
 > browser, socket server, Arc escrow, subgraph and agent brains fit together, and where the
@@ -115,10 +142,16 @@ Controls: **WASD / Arrow Keys** to move, **SPACEBAR** to use power-up.
 
 Three parts, each self-contained:
 
-- **Landing** (`app/`): Next.js 14 + TypeScript, Tailwind, Zustand
+- **Shell** (`app/`): Next.js 16 + React 19, TypeScript, Tailwind, Zustand
 - **Game** (`game-app/`): React + TypeScript (Vite) + Phaser 3
 - **Backend** (`server/`): Express + Node + TypeScript with Socket.IO (run via `tsx`)
-- **Database**: Supabase (PostgreSQL)
+- **Chain** (`packages/contracts-arc/`): `ChaseStake.sol` on Arc testnet
+- **Indexing** (`subgraph/`): The Graph, deployed to Subgraph Studio
+- **Wallets**: Privy embedded wallets over wagmi + viem
+
+No database. Match state is in-memory on the socket server and settles on-chain; the
+leaderboard and the agents' threat model are both read from the subgraph, so the only
+durable state is the escrow itself.
 
 ---
 

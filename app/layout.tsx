@@ -46,9 +46,9 @@ export const metadata: Metadata = {
   icons: {
     icon: [
       { url: "/icon-192.png", type: "image/png", sizes: "192x192" },
-      { url: "/icon-192.svg", type: "image/svg+xml" },
+      { url: "/icon-512.png", type: "image/png", sizes: "512x512" },
     ],
-    apple: [{ url: "/icon-192.png", sizes: "192x192" }],
+    apple: [{ url: "/apple-touch-icon.png", sizes: "180x180" }],
   },
   openGraph: {
     type: "website",
@@ -57,6 +57,17 @@ export const metadata: Metadata = {
     description: siteConfig.description,
     url: siteConfig.url,
     locale: siteConfig.locale,
+    // Without this a shared link renders as a bare grey card with a URL on it — the
+    // single highest-leverage asset on the site, since most people meet the game as a
+    // link before they ever meet the game.
+    images: [
+      {
+        url: "/og-image.jpg",
+        width: 1200,
+        height: 630,
+        alt: "Four dinosaurs chasing the one carrying a golden egg across a sunlit plain",
+      },
+    ],
   },
   twitter: {
     card: "summary_large_image",
@@ -64,6 +75,7 @@ export const metadata: Metadata = {
     description: siteConfig.description,
     site: siteConfig.twitterHandle,
     creator: siteConfig.twitterHandle,
+    images: ["/og-image.jpg"],
   },
   robots: {
     index: true,
@@ -83,7 +95,10 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
-  themeColor: "#1a3a1a",
+  // Brand dark brown — the panel colour, and what the manifest declares. The old value
+  // (#1a3a1a, a green) matched nothing in the palette and tinted mobile browser chrome a
+  // colour that appears nowhere in the game.
+  themeColor: "#261309",
   viewportFit: "cover",
 };
 
@@ -95,7 +110,8 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        <link rel="manifest" href="/manifest.json" />
+        {/* No manifest link here — `metadata.manifest` already emits one, and declaring it
+            twice put two identical <link rel="manifest"> tags in every page's head. */}
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
