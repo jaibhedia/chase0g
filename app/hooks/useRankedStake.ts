@@ -11,7 +11,14 @@
  * players join the same escrow — the pot moves without this browser doing anything.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
+import {
+  useAccount,
+  useConfig,
+  useReadContract,
+  useWriteContract,
+  useWaitForTransactionReceipt,
+} from 'wagmi';
+import { readContract } from 'wagmi/actions';
 import { formatUnits, type Hex } from 'viem';
 import {
   CHASE_STAKE_ADDRESS,
@@ -72,6 +79,8 @@ export function useRankedStake(roomCode: string | null, stakeAmount: bigint) {
   });
 
   const { writeContractAsync, isPending: isWriting } = useWriteContract();
+  // Needed for the imperative, at-click-time escrow read in `join` — see the note there.
+  const config = useConfig();
 
   // An approval only shows up in `allowance` once it is mined, and a join only shows up in
   // `joined`. Without waiting on the receipt the UI sits on "needs approval" after the
@@ -105,18 +114,51 @@ export function useRankedStake(roomCode: string | null, stakeAmount: bigint) {
 
   const join = useCallback(async () => {
     if (!matchId) throw new Error('No room code — nothing to join.');
-    // `createMatch` opens the escrow and joins in one call, so only the first player in a
-    // room calls it. Everyone after joins the escrow that already exists.
-    const exists = match && match[0] !== '0x0000000000000000000000000000000000000000';
-    const hash = await writeContractAsync({
+
+    /**
+     * `createMatch` opens the escrow and joins in one call, so only the FIRST player in a
+     * room calls it; everyone after joins the escrow that already exists.
+     *
+     * Deciding that from the polled `match` was a race. The poll refreshes every 4s, and
+     * in a two-player lobby the second player routinely clicks inside that window — their
+     * cached copy still reads "no match", so they call `createMatch` and the contract
+     * reverts `MatchExists()` (0xc4c7d040), which surfaces as an undecodable revert
+     * because the error isn't in the client ABI. The poll is right for *showing* the pot
+     * and wrong for *choosing the function*, so this reads the escrow fresh at click time.
+     */
+    const current = (await readContract(config, {
       address: CHASE_STAKE_ADDRESS,
       abi: chaseStakeAbi,
-      functionName: exists ? 'join' : 'createMatch',
-      args: exists ? [matchId] : [matchId, stakeAmount],
-    } as never);
-    setPendingHash(hash);
-    return hash;
-  }, [writeContractAsync, matchId, match, stakeAmount]);
+      functionName: 'getMatch',
+      args: [matchId],
+    })) as readonly unknown[];
+    const exists = Boolean(current) && current[0] !== '0x0000000000000000000000000000000000000000';
+
+    const send = (asJoin: boolean) =>
+      writeContractAsync({
+        address: CHASE_STAKE_ADDRESS,
+        abi: chaseStakeAbi,
+        functionName: asJoin ? 'join' : 'createMatch',
+        args: asJoin ? [matchId] : [matchId, stakeAmount],
+      } as never);
+
+    try {
+      const hash = await send(exists);
+      setPendingHash(hash);
+      return hash;
+    } catch (err) {
+      // Even a fresh read can lose: two players can both see an empty escrow and both
+      // call createMatch in the same block. The loser gets MatchExists() — which means
+      // the escrow they wanted now exists, so joining it is exactly the right recovery.
+      const msg = String((err as Error)?.message ?? '');
+      if (!exists && (msg.includes('0xc4c7d040') || msg.includes('MatchExists'))) {
+        const hash = await send(true);
+        setPendingHash(hash);
+        return hash;
+      }
+      throw err;
+    }
+  }, [writeContractAsync, matchId, stakeAmount, config]);
 
   const settled = match?.[4] ?? false;
   // BigInt(0), not 0n: tsconfig targets ES2017, which rejects bigint literals.
