@@ -7,9 +7,9 @@
     "codegen": "graph codegen",
     "build": "graph build",
     "auth": "graph auth",
-    "deploy": "graph deploy chase-stake",
-    "create-local": "graph create --node http://localhost:8020/ chase-stake",
-    "deploy-local": "graph deploy --node http://localhost:8020/ --ipfs http://localhost:5001 chase-stake"
+    "deploy": "graph deploy chase",
+    "create-local": "graph create --node http://localhost:8020/ chase",
+    "deploy-local": "graph deploy --node http://localhost:8020/ --ipfs http://localhost:5001 chase"
   },
   "dependencies": {
     "@graphprotocol/graph-cli": "0.97.1",

@@ -39,6 +39,9 @@
     "node_modules",
     "server",
     "dist",
-    "game-app"
+    "game-app",
+    "subgraph",
+    "contracts",
+    "packages"
   ]
 }

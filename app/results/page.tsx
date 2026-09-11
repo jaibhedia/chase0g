@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Home, RotateCcw, Trophy, Crown, Skull, Medal, Target, Star, ThumbsUp, Gamepad2 } from 'lucide-react';
 import { CHASE_STAKE_ADDRESS } from '@/lib/arc/chaseStake';
 import { arcAddressUrl } from '@/lib/arc/chain';
+import { Leaderboard } from '../components/Leaderboard';
 
 /**
  * What the server reports when a match ends: the settled Arc pot.
@@ -443,6 +444,10 @@ export default function Results() {
             </div>
           </motion.div>
         )}
+
+        {/* Leaderboard, indexed from Arc by The Graph. Renders nothing until the
+            subgraph is deployed and has rows, so it never shows an empty shell. */}
+        <Leaderboard />
 
         {/* Action Buttons */}
         <motion.div
