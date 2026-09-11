@@ -157,21 +157,29 @@ function withOnChainRecords(roomCode: string, players: AgentSnapshot['players'])
  * Who gets paid the pot.
  *
  * "Last egg holder wins" is the game's rule, and the fill-agents play by it — so an agent
- * can absolutely be holding the egg when the timer runs out. But an agent has no wallet
- * and no World ID; it is not a person and there is nobody to pay. The old code resolved
- * the winning userId against the room roster, got `null` for `agent_0`, and left the pot
+ * can absolutely be holding the egg when the timer runs out. The old code resolved the
+ * winning userId against the room roster, got `null` for `agent_0`, and left the pot
  * escrowed until the one-hour refund window. A ranked match where the bots won simply ate
  * both players' money for an hour.
  *
- * So the human/agent boundary decides who can be paid. Agents compete for the egg; they
- * cannot take a stake. When one wins, the pot goes to the human who did best by the game's
- * own scoring — most egg holds — among players who actually staked. Ties break on user id
- * so the choice is deterministic and reproducible from the match record.
+ * The rule is NOT "agents cannot be paid". It is "an UNBACKED agent cannot be paid".
  *
- * This is the same boundary World ID enforces at the faucet, applied at the other end of
- * the money: Selfie Check decides who can be paid *out of* the faucet, and this decides
- * who can be paid *out of* the escrow. In both cases the question is "is there a person
- * here", and in both cases the answer has to be something better than "they claimed so".
+ * Today's fill-agents are house NPCs: we spawn them to keep a half-full room playable, and
+ * nobody owns them. There is no principal behind `agent_0` — no wallet, no person, nobody
+ * accountable for what it does — so there is no one to pay, and the pot goes to the human
+ * who did best by the game's own scoring (most egg holds) among players who actually
+ * staked. Ties break on user id so the outcome is deterministic and reproducible from the
+ * match record.
+ *
+ * A player-owned agent is a different thing and is meant to be payable: a verified human
+ * registers it, stakes through it, and is accountable for it, so winnings settle to that
+ * human's wallet. The boundary that matters is not human-vs-agent, it is
+ * backed-vs-unbacked — which is exactly what proof-of-human buys us. Selfie Check decides
+ * who can be paid *out of* the faucet; this decides who can be paid *out of* the escrow;
+ * both ask whether there is an accountable person, and neither accepts a claim as proof.
+ *
+ * Extending this to bring-your-own-agent means giving an agent a principal to check
+ * against, not removing the check.
  */
 function resolvePayoutAddress(
   rc: string,
