@@ -93,6 +93,29 @@ let the Developer Portal show a per-app Selfie Check status so you can see which
 you're still waiting on. On a time-boxed build like a hackathon, a serialised approval is
 the difference between shipping and not.
 
+### 🐞 Two apps called "World ID", and nothing tells you which one you need
+
+Testing staging requires the **sandbox** app (`org.world.id.sandbox`, distributed by Firebase
+App Distribution). The Play Store app is **production**. They share a name, and the
+integration docs never mention that a second app exists.
+
+What happened to us: IDKit rendered its QR, we scanned it with the World App we already had
+from the Play Store, and nothing happened — no error naming the mismatch, just a flow that
+went nowhere. We assumed our integration was broken and went looking in our own code. The
+actual cause was that a `environment: "staging"` request cannot be answered by the
+production app at all.
+
+The sandbox app arrives by Firebase email whose subject is *"You've been invited to test
+World ID for Android"* — which reads like a generic beta invite for World ID, not like the
+prerequisite for testing your own integration. Nothing connects it to the `environment`
+parameter you set in code.
+
+**Suggested fix:** on the [Integrate IDKit](https://docs.world.org/world-id/idkit/integrate)
+page, right where `environment` is introduced, state plainly: *staging requires the sandbox
+app, which is a different install from the Play Store World App.* A mismatch is also worth a
+real error — when a production app receives a staging request (or vice versa), surfacing
+"this request is for the sandbox app" would have saved us the entire detour.
+
 ### 🔧 Gap: nothing says nullifier casing can vary
 
 Nullifiers are documented as "0x-prefixed hex strings representing 256-bit integers", and
@@ -150,6 +173,7 @@ Two things we specifically want to test and could not without sandbox access:
 | Selfie Check example omits required `allow_legacy_proofs` | **High** — doesn't compile | Only the Selfie Check example is affected |
 | `selfieCheckLegacy` naming reads as deprecated | Medium | Sits next to an actually-deprecated `deviceLegacy` |
 | Casing-as-vulnerability not stated outright | Medium | Obvious implementation is the unsafe one |
+| Two apps named "World ID" (Play Store = production, Firebase = sandbox), undocumented | **High** — silent dead end | Scanning with the wrong one fails with no error naming the mismatch |
 | Two separate human approvals (sandbox + per-app beta flag), documented apart | **High** — serialises two unknown turnarounds | Easy to request only one and think you're unblocked |
 | Sandbox access is a Google Form with unknown turnaround | Medium | Blocks end-to-end testing; a self-serve staging path would help |
 | No documented way to reset a test user's nullifier | Low | Makes "already claimed" hard to test repeatedly |
