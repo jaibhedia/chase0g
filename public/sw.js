@@ -47,7 +47,7 @@ self.addEventListener('fetch', (event) => {
           cache.put(req, fresh.clone());
         }
         return fresh;
-      } catch (err) {
+      } catch {
         // Offline: serve the cached copy if we have one.
         const cached = await caches.match(req);
         if (cached) return cached;
@@ -56,7 +56,24 @@ self.addEventListener('fetch', (event) => {
           const shell = await caches.match('/');
           if (shell) return shell;
         }
-        throw err;
+        // Nothing cached and the network is gone. Rethrowing here used to turn a single
+        // failed request into "FetchEvent resulted in a network error response" plus an
+        // uncaught TypeError in the console — the page just broke, with no indication the
+        // cause was the network. Returning a real Response lets the browser render
+        // something and keeps the failure legible.
+        return new Response(
+          req.mode === 'navigate'
+            ? '<!doctype html><meta charset="utf-8"><title>Offline</title>' +
+              '<body style="background:#11111c;color:#f4e7c3;font:16px system-ui;display:grid;' +
+              'place-items:center;height:100vh;margin:0"><p>You appear to be offline. ' +
+              'Reload when your connection is back.</p></body>'
+            : '',
+          {
+            status: 503,
+            statusText: 'Offline',
+            headers: req.mode === 'navigate' ? { 'Content-Type': 'text/html' } : {},
+          },
+        );
       }
     })()
   );
