@@ -14,6 +14,7 @@
  */
 import type OpenAI from 'openai';
 import { getAiClient, AI_MODEL } from '../ai/provider';
+import type { PlayerRecord } from '../graph/playerRecords';
 
 export type AgentMode = 'hunt' | 'flee' | 'guard' | 'intercept' | 'roam';
 export type AgentPersona = 'aggressive' | 'sneaky' | 'cocky' | 'cautious';
@@ -33,6 +34,15 @@ export interface SnapshotPlayer {
   y: number;
   hasEgg: boolean;
   persona?: AgentPersona;
+  /** Privy user id, sent by the host client so the server can resolve this player's
+   *  wallet (and therefore their on-chain record). Absent for bots. */
+  userId?: string;
+  /**
+   * This player's staking history, read from the ChaseStake subgraph and attached by
+   * the server before inference. Absent for bots, for wallet-less Free Play players,
+   * and for anyone with no settled match yet.
+   */
+  record?: PlayerRecord;
 }
 
 export interface AgentSnapshot {
@@ -109,6 +119,13 @@ You control only the players whose kind is "agent". For EACH agent, choose:
 - persona: aggressive | sneaky | cocky | cautious — keep it consistent with the agent's given persona.
 - taunt: ONE short in-character trash-talk line (max 12 words), matching the persona. Vary it; reference the situation.
 Coordinate by distance (each agent has distToHolder/distToEgg): the CLOSEST agent should hunt directly; the others intercept to cut off the escape, or guard a lane — never all dogpile the same way. Keep each agent's tactic coherent with its "previously" mode unless the situation clearly changed.
+
+THREAT ASSESSMENT — some human players carry a "record" field. This is their real staking history on Arc, indexed from the match-escrow contract: played (matches), won (matches), net (USDC they are up or down overall), best (biggest single pot). Use it to decide WHO IS DANGEROUS, not just who is close:
+- A player with a strongly positive net, or a high won/played ratio, is a proven winner. Treat them as the primary threat. When two targets are comparable in distance, pressure THAT one: hunt them, deny them the loose egg, and have a second agent guard their escape lane even before they hold the egg.
+- A player with no record, or a negative net, is unproven. Spend fewer agents on them; a single hunter is enough.
+- Never let a proven winner sit unmarked while every agent chases someone with no history.
+- The nearest agent still takes the direct hunt — record changes PRIORITY between targets, never basic geometry.
+- Taunts may reference the record when it is notable ("up 4 USDC? not after this", "zero wins, figures"), but only when it is actually in the data. Never invent numbers.
 Respond ONLY with strict JSON: {"intents":[{"agentId","mode","targetId","persona","taunt"}, ...]} with exactly one entry per agent. No prose.`;
 
 function buildUserPrompt(snap: AgentSnapshot, agents: SnapshotPlayer[], prev?: Intent[]): string {
@@ -130,6 +147,18 @@ function buildUserPrompt(snap: AgentSnapshot, agents: SnapshotPlayer[], prev?: I
       y: Math.round(p.y),
       hasEgg: p.hasEgg,
       ...(p.persona ? { persona: p.persona } : {}),
+      // On-chain staking history from The Graph. Short keys and rounded USDC keep this
+      // cheap — it rides along on every tick, and the model only needs the magnitudes.
+      ...(p.record
+        ? {
+            record: {
+              played: p.record.matchesPlayed,
+              won: p.record.matchesWon,
+              net: Number(p.record.netProfit.toFixed(2)),
+              best: Number(p.record.biggestPot.toFixed(2)),
+            },
+          }
+        : {}),
     })),
     // Per-agent context so the model can divide roles by distance and stay coherent
     // with its last decision (rolling memory) instead of re-deciding from scratch.

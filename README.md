@@ -23,6 +23,42 @@ That on/off difference is the proof for the tournament's #1 entry rule: *remove 
 
 > **0G keys are server-side only** (`server/` env). They are never prefixed `NEXT_PUBLIC_` and never reach the browser bundles or git — a leaked funded key spends real testnet balance. See [`.env.example`](.env.example).
 
+### The Graph — the agents' on-chain threat model
+
+The AI opponents don't just see the arena, they see **who they're playing**. Every match is
+staked in USDC through the `ChaseStake` escrow on Arc; a subgraph indexes that escrow, and
+the agent brains read it to decide **who to hunt**.
+
+```
+ChaseStake (Arc)  ──events──▶  subgraph  ──GraphQL──▶  server  ──▶  0G Compute
+  MatchStaked                  (Studio)     records      join       agent intents
+  MatchSettled                                         userId→wallet   (who to hunt)
+```
+
+A player who is up 4 USDC across six matches gets marked as the primary threat: agents
+prioritise them over a closer but unproven player, guard their escape lanes before they
+ever touch the egg, and taunt them about it by name. A player with no history draws a
+single hunter. **Record changes priority between targets; geometry still decides the
+mechanics.**
+
+| Piece | Where |
+|---|---|
+| Subgraph (schema, mappings, manifest) | [`subgraph/`](subgraph/) |
+| Live-data reader (cached, non-blocking) | [`server/src/graph/playerRecords.ts`](server/src/graph/playerRecords.ts) |
+| userId → wallet → record join | `withOnChainRecords()` in [`server/src/index.ts`](server/src/index.ts) |
+| Threat-assessment prompt | `SYSTEM_PROMPT` in [`server/src/agents/agentBrain.ts`](server/src/agents/agentBrain.ts) |
+| Player-facing leaderboard | [`app/components/Leaderboard.tsx`](app/components/Leaderboard.tsx) |
+
+Data is live from Subgraph Studio, never mocked. The reader is a **synchronous cache read**
+that never awaits inside the match loop — a slow or unreachable subgraph costs the 6s
+inference budget nothing, and the agents simply degrade to spatial-only reasoning. Verify
+the source yourself:
+
+```bash
+curl -s -X POST "$SUBGRAPH_URL" -H 'Content-Type: application/json' \
+  -d '{"query":"{ players(first: 10, orderBy: netProfit, orderDirection: desc) { id matchesPlayed matchesWon netProfit } }"}'
+```
+
 ### Base gameplay (carried over from the Chase engine)
 
 - 6 characters each with a unique power-up (unlocks at 15s)
@@ -66,6 +102,7 @@ NEXT_PUBLIC_SOCKET_URL=http://localhost:3001
 NEXT_PUBLIC_PRIVY_APP_ID=            # https://dashboard.privy.io — without it, ranked play is disabled
 NEXT_PUBLIC_ARC_TESTNET_RPC_URL=https://rpc.testnet.arc.network
 NEXT_PUBLIC_ARC_CHASESTAKE_ADDRESS=0xD648def45026f437351D797dC3574fa97507BA83
+NEXT_PUBLIC_SUBGRAPH_URL=            # Subgraph Studio query URL — powers the leaderboard
 ```
 
 **`server/.env`** (never committed — see `server/.env.example` for the annotated version):
@@ -74,8 +111,7 @@ NEXT_PUBLIC_ARC_CHASESTAKE_ADDRESS=0xD648def45026f437351D797dC3574fa97507BA83
 ARC_PRIVATE_KEY=        # settlement authority; the wallet ChaseStake records as `server`
 FAUCET_PRIVATE_KEY=     # SEPARATE wallet that drips 2 USDC to each new player
 OG_ROUTER_API_KEY=      # 0G Compute — without it agents fall back to scripted play
-OG_PRIVATE_KEY=         # funded 0G Galileo wallet: storage uploads + leaderboard writes
-OG_LEADERBOARD_ADDRESS= # from `node contracts/deploy.mjs`
+SUBGRAPH_URL=           # same Studio URL; lets agents factor in players' on-chain records
 ```
 
 The faucet and settlement keys are deliberately different wallets: the faucet gives money to

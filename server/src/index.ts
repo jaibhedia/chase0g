@@ -28,6 +28,7 @@ import rateLimit from 'express-rate-limit';
 import { ethers } from 'ethers';
 import { Server, type Socket } from 'socket.io';
 import { decideIntents, forgetRoom, getTranscript, type AgentSnapshot } from './agents/agentBrain';
+import { getRecords, primeRecords, GRAPH_ENABLED } from './graph/playerRecords';
 import { aiEnabled, getAiClient, AI_MODEL, aiProviderName } from './ai/provider';
 import { settleMatch, getArcMatch, arcEnabled, arcReadEnabled } from './arc/chaseStake';
 import { dripTo, faucetEnabled, faucetStatus } from './arc/faucet';
@@ -113,6 +114,42 @@ function publicPlayers(room: Room): Array<Omit<LobbyPlayer, 'graceTimers' | 'wal
     connected: p.connected,
     socket_id: p.socket_id,
   }));
+}
+
+/**
+ * Attach each human player's on-chain staking record to the agent-brain snapshot.
+ *
+ * This is the join that makes the AI opponents read The Graph: the host client knows
+ * positions and Privy user ids but has no idea who anyone is on-chain, and the escrow
+ * knows wallets but nothing about the match in progress. The server holds both halves —
+ * `wallet_address` was captured at join for settlement — so it resolves userId → wallet
+ * → indexed record here, and the brains get to reason about who is actually dangerous.
+ *
+ * Strictly best-effort. `getRecords` is a synchronous cache read that never throws, so
+ * an unreachable subgraph costs this path nothing and the snapshot goes out unchanged.
+ * Solo play (`solo-<userId>`) has no room, and therefore no records — by design, since
+ * there is nothing staked in single-player anyway.
+ */
+function withOnChainRecords(roomCode: string, players: AgentSnapshot['players']): AgentSnapshot['players'] {
+  const room = rooms.get(roomCode);
+  if (!room || !Array.isArray(players)) return players ?? [];
+
+  // userId → wallet, for the humans in this room that have one.
+  const walletFor = new Map<string, string>();
+  for (const p of room.players) {
+    if (p.wallet_address) walletFor.set(p.user_id, p.wallet_address);
+  }
+  if (walletFor.size === 0) return players;
+
+  const records = getRecords([...walletFor.values()]);
+  if (records.size === 0) return players;
+
+  return players.map((p) => {
+    if (p.kind !== 'human' || !p.userId) return p;
+    const wallet = walletFor.get(p.userId);
+    const record = wallet ? records.get(wallet.toLowerCase()) : undefined;
+    return record ? { ...p, record } : p;
+  });
 }
 
 /** Find the live socket id for a user in a room (for targeted voice relay). */
@@ -625,7 +662,8 @@ io.on('connection', (socket: Socket<any, any, any, SocketData>) => {
     if (agentTickInFlight.has(rc)) return;
     agentTickInFlight.add(rc);
     try {
-      const { intents, source } = await decideIntents({ ...snap, roomCode: rc });
+      const enriched = { ...snap, roomCode: rc, players: withOnChainRecords(rc, snap.players) };
+      const { intents, source } = await decideIntents(enriched);
       const payload = { intents, source, ogEnabled: aiEnabled, aiProvider: aiProviderName };
       // Reach the requesting client (single-player has no Socket.IO room) AND the
       // rest of the room (multiplayer), with no duplicate to the sender.
@@ -841,6 +879,12 @@ httpServer.on('error', (err: NodeJS.ErrnoException) => {
 httpServer.listen(PORT, () => {
   console.log(`[chase-server] Express + Socket.IO listening on http://localhost:${PORT}`);
   void ogSmokeTest();
+  // Warm the subgraph cache now so the first match of a session already has records to
+  // reason over, rather than playing its opening ticks on a cold cache.
+  if (GRAPH_ENABLED) {
+    console.log('[graph] subgraph configured — agents will factor in on-chain records');
+    primeRecords();
+  }
   // Say up front how many players the faucet can still fund. Running dry mid-demo looks
   // like the sign-in is broken, since a player with no USDC simply cannot enter a match.
   void faucetStatus().then((s) => {

@@ -2178,6 +2178,13 @@ export class GameScene extends Phaser.Scene {
           y: Math.round(p.y),
           hasEgg: !!p.hasEgg,
           ...(p.persona ? { persona: p.persona } : {}),
+          // Lets the server resolve this human to their wallet, and from there to their
+          // staking record in the subgraph, before it runs inference. The local player's
+          // scene id is the literal string 'player', so userId is the only stable key
+          // that survives the trip. Bots have none.
+          ...(!p.isBot && (p.userId || (p.id === 'player' && this.localUserId))
+            ? { userId: p.userId || this.localUserId }
+            : {}),
         })),
       });
     }
