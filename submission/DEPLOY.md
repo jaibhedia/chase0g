@@ -47,7 +47,7 @@ OG_ROUTER_API_KEY        0G Compute — without it agents fall back to scripted
 CORS_ORIGIN              ← set in Step 3, once you have the Vercel URL
 ```
 
-Your URL will be **`https://chase-dinosaurs.onrender.com`**.
+Your URL: **`https://chase-dinosaurs-4qb2.onrender.com`** (Render appends a random suffix — take it from the dashboard, do not assume it matches the service name).
 
 > ⚠️ **The free plan spins down after ~15 min idle and cold-starts in ~50s.** To a judge
 > that's a dead link. Either upgrade to **Starter ($7)**, or set up the keepalive below.
@@ -60,7 +60,7 @@ At [cron-job.org](https://cron-job.org) → **Create cronjob**:
 | Field | Value |
 |---|---|
 | Title | `chase keepalive` |
-| URL | `https://chase-dinosaurs.onrender.com/health` |
+| URL | `https://chase-dinosaurs-4qb2.onrender.com/health` |
 | Schedule | **Every 10 minutes** |
 | Request method | `GET` |
 | Treat as success | HTTP `200` |
@@ -80,7 +80,7 @@ judging you find out from an inbox rather than from a judge.
 ### Verify before moving on
 
 ```bash
-curl https://chase-dinosaurs.onrender.com/health
+curl https://chase-dinosaurs-4qb2.onrender.com/health
 ```
 
 **Check one field:**
@@ -125,7 +125,7 @@ because nothing errors.
 ### Environment variables
 
 ```
-NEXT_PUBLIC_SOCKET_URL             https://chase-dinosaurs.onrender.com
+NEXT_PUBLIC_SOCKET_URL             https://chase-dinosaurs-4qb2.onrender.com
 NEXT_PUBLIC_PRIVY_APP_ID           cmtt7l9wx00bg0bl7wn9q6csh
 NEXT_PUBLIC_ARC_TESTNET_RPC_URL    https://rpc.testnet.arc.network
 NEXT_PUBLIC_ARC_CHASESTAKE_ADDRESS 0xD648def45026f437351D797dC3574fa97507BA83
