@@ -177,6 +177,8 @@ export class GameScene extends Phaser.Scene {
   private eggSprite: Phaser.GameObjects.Container | null = null;
   /** Edge-of-screen pointer toward the egg while it's off-camera. Created lazily. */
   private eggArrow: Phaser.GameObjects.Triangle | null = null;
+  /** Last egg-tint state applied per sprite, so the per-frame draw can skip no-op writes. */
+  private spriteTinted: Record<string, boolean> = {};
   private infernoSlowZones: Array<{ x: number; y: number; width: number; height: number }> = [];
   /** Interior room rects (tile coords) produced by the active map builder, used to
    *  scatter furniture/cover inside rooms without blocking doorways. */
@@ -617,22 +619,44 @@ export class GameScene extends Phaser.Scene {
         spr.play(`idle_${sid}_anim`, true);
       }
 
-      if (p.hasEgg) spr.setTint(0xfacc15);
-      else spr.clearTint();
+      // Tint changes are cheap but not free, and `hasEgg` flips at most a handful of
+      // times a round — so track the applied value rather than reasserting every frame.
+      const wantTint = p.hasEgg;
+      if (this.spriteTinted[p.id] !== wantTint) {
+        if (wantTint) spr.setTint(0xfacc15);
+        else spr.clearTint();
+        this.spriteTinted[p.id] = wantTint;
+      }
 
       // YOU: green, egg-holder: warm yellow, others: white.
       const isSelf = p.id === 'player';
       const markerColor = p.hasEgg ? 0xfacc15 : (isSelf ? 0x4ade80 : 0xffffff);
+      /**
+       * Only touch the text objects when something actually changed.
+       *
+       * Phaser's Text.setText and setColor both regenerate the object's texture — a
+       * canvas redraw plus a GPU upload — and neither checks whether the value differs
+       * first. These ran unconditionally for every player every frame, so six players at
+       * 60fps cost more than a thousand texture rebuilds a second to redraw names that
+       * change maybe twice a match. That is the stutter.
+       *
+       * setScale is cheap by comparison (no texture work), but it is guarded by the same
+       * check for free.
+       */
       const nameTag = sprite.getAt(2) as Phaser.GameObjects.Text;
       const marker = sprite.getAt(3) as Phaser.GameObjects.Text;
+      const label = isSelf ? 'YOU' : p.character.name;
+      const css = this.colorToCss(markerColor);
       if (nameTag) {
-        nameTag.setText(isSelf ? 'YOU' : p.character.name);
-        nameTag.setColor(this.colorToCss(markerColor));
-        nameTag.setScale(isSelf ? 1.05 : 1);
+        if (nameTag.text !== label) nameTag.setText(label);
+        if (nameTag.style.color !== css) nameTag.setColor(css);
+        const s = isSelf ? 1.05 : 1;
+        if (nameTag.scaleX !== s) nameTag.setScale(s);
       }
       if (marker) {
-        marker.setColor(this.colorToCss(markerColor));
-        marker.setScale(isSelf || p.hasEgg ? 1.12 : 1);
+        if (marker.style.color !== css) marker.setColor(css);
+        const s = isSelf || p.hasEgg ? 1.12 : 1;
+        if (marker.scaleX !== s) marker.setScale(s);
       }
 
       const shadow = sprite.getAt(0) as Phaser.GameObjects.Ellipse;
@@ -1690,6 +1714,10 @@ export class GameScene extends Phaser.Scene {
   private rebuildPlayerSprite(p: Player) {
     const old = this.playerSprites[p.id];
     if (old) old.destroy();
+    // The new sprite starts untinted, so drop the cached tint state with it — otherwise
+    // the draw loop believes the tint is already applied and the egg carrier silently
+    // loses their gold highlight for the rest of the round.
+    delete this.spriteTinted[p.id];
     this.createPlayerSprite(p);
   }
 
@@ -1739,6 +1767,9 @@ export class GameScene extends Phaser.Scene {
         this.playerSprites[id].destroy();
         delete this.playerSprites[id];
         delete this.remoteNet[id];
+        // Keep the tint cache in step with the sprites it describes, so a player who
+        // leaves and rejoins doesn't inherit a stale entry.
+        delete this.spriteTinted[id];
       }
     });
 
