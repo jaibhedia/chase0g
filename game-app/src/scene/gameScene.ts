@@ -2180,7 +2180,8 @@ export class GameScene extends Phaser.Scene {
         bot.persona === 'aggressive' ? 1.14 :
         bot.persona === 'cocky' ? 1.06 :
         bot.persona === 'cautious' ? 0.9 : 1.0;
-      const speed = bot.character.speed * baseMult * dt * speedMul * infernoMul * slowEffectMul * personaMul;
+      const ramp = this.botRamp();
+      const speed = bot.character.speed * baseMult * dt * speedMul * infernoMul * slowEffectMul * personaMul * ramp.speed;
 
       // Intent set by the 0G Compute agent brain (updateAgentBrains). When absent
       // (0G offline / not yet ticked) every branch below falls through to the
@@ -2210,13 +2211,13 @@ export class GameScene extends Phaser.Scene {
         const target = eggHolder && !eggHolder.isInvincible ? eggHolder : undefined;
         if (target) {
           if (intent.mode === 'intercept') {
-            // Full interception: commit to where the target is going.
-            const aim = this.interceptPoint(bot, target, speed);
+            // Commits hardest to the predicted point — this is the role that cuts you off.
+            const aim = this.interceptPoint(bot, target, speed, ramp.lead);
             this.moveTowards(bot, aim.x, aim.y, speed);
           } else {
-            // Hunt leads too, but only partway, so the pack doesn't converge on one
-            // predicted point and leave the target a clear lane behind them.
-            const aim = this.interceptPoint(bot, target, speed, 0.6);
+            // Hunt leads less, so a pack doesn't converge on one predicted point and
+            // leave the target a clear lane behind them.
+            const aim = this.interceptPoint(bot, target, speed, ramp.lead * 0.6);
             this.moveTowards(bot, aim.x, aim.y, speed);
           }
         } else if (eggPos) {
@@ -2234,7 +2235,7 @@ export class GameScene extends Phaser.Scene {
         // so a bot with no intent yet is merely less coordinated than one with a brain,
         // not visibly broken — this is the path every bot takes for the first few
         // seconds of a round, before the first strategy tick lands.
-        const aim = this.interceptPoint(bot, eggHolder, speed, 0.6);
+        const aim = this.interceptPoint(bot, eggHolder, speed, ramp.lead * 0.6);
         this.moveTowards(bot, aim.x, aim.y, speed);
       } else if (eggPos) {
         // Egg is on the floor — race for it.
@@ -2360,6 +2361,30 @@ export class GameScene extends Phaser.Scene {
    * target's current heading that far predicts a position it will never visit. Past a
    * point, aiming at the target itself is the better guess.
    */
+  /**
+   * Bot competence over the course of a round: easy at the whistle, medium by the end.
+   *
+   * Fixing the interception maths made the bots genuinely competent, which is worse than
+   * it sounds for a first-time player — being hunted accurately in the opening seconds,
+   * before you know the controls or what the egg is for, reads as unfair rather than
+   * hard, and that is where people quit.
+   *
+   * So the round opens soft and tightens. The ceiling is deliberately *medium*, not the
+   * full-strength interception: a bot that always solves the intercept perfectly is
+   * unbeatable rather than fun, and the top end here still leaves a competent player
+   * room to juke. Early softness comes mostly from `lead` (bad prediction reads as a bot
+   * that misjudges, which looks natural) rather than from speed, since an obviously slow
+   * bot just looks broken.
+   */
+  private botRamp(): { speed: number; lead: number } {
+    const progress = 1 - Math.max(0, Math.min(1, this.gameTimer / GAME_DURATION));
+    const lerp = (a: number, b: number) => a + (b - a) * progress;
+    return {
+      speed: lerp(0.86, 1.0),
+      lead: lerp(0.3, 0.85),
+    };
+  }
+
   private interceptPoint(bot: Player, target: Player, speed: number, strength = 1): { x: number; y: number } {
     if (speed <= 0.0001) return { x: target.x, y: target.y };
     const tv = this.playerVelocity[target.id] || { vx: 0, vy: 0 };
