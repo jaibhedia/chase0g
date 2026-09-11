@@ -23,6 +23,10 @@ That on/off difference is the proof for the tournament's #1 entry rule: *remove 
 
 > **0G keys are server-side only** (`server/` env). They are never prefixed `NEXT_PUBLIC_` and never reach the browser bundles or git — a leaked funded key spends real testnet balance. See [`.env.example`](.env.example).
 
+> 🏗️ **[Architecture diagram + match lifecycle →](submission/ARCHITECTURE.md)** — how the
+> browser, socket server, Arc escrow, subgraph and agent brains fit together, and where the
+> money moves.
+
 ### The Graph — the agents' on-chain threat model
 
 The AI opponents don't just see the arena, they see **who they're playing**. Every match is
