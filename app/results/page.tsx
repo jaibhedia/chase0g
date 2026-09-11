@@ -99,7 +99,7 @@ export default function Results() {
     }
   }, [winner, router, playerWon, setGameResult, setPlayers]);
 
-  // Same-origin (production) fallback: the game mirrors the 0G Storage artifact to
+  // Same-origin (production) fallback: the game mirrors the settlement result to
   // localStorage; the hash handoff above is the cross-origin (dev) channel.
   useEffect(() => {
     if (replay) return;

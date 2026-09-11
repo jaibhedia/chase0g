@@ -75,9 +75,9 @@ export function Game({ onGameEnd }: GameProps) {
     }
   }, [mobilePowerUpPressed]);
 
-  // On match end, give the 0G Storage replay upload a brief moment to return its
-  // verifiable root hash (the scene mirrors it to localStorage for the results page),
-  // then hand off. Capped so we never hang if storage is slow/disabled.
+  // On match end, give settlement a brief moment to return the payout (the scene
+  // mirrors it to localStorage for the results page), then hand off. Capped so we never
+  // hang if the chain is slow or the room was never staked.
   useEffect(() => {
     if (gamePhase !== 'ended' || endedRef.current) return;
     if (replay.done) { endedRef.current = true; onGameEnd(); return; }
@@ -121,30 +121,28 @@ export function Game({ onGameEnd }: GameProps) {
       <AnimatePresence>
         {gamePhase === 'ended' && (
           <motion.div
-            key="securing-replay"
+            key="settling"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="absolute inset-0 z-[70] flex items-center justify-center bg-black/55 pointer-events-none"
           >
+            {/* Was "Securing replay on 0G Storage…". The wait here is the settlement
+                transaction, so say that — a player who just won money wants to know the
+                payout is moving, not that a Merkle root is being written. */}
             <div className="px-panel px-6 py-5 flex flex-col items-center gap-2 text-center">
               <span
                 className="inline-block h-2.5 w-2.5 rounded-full"
                 style={{
-                  background: replay.done && replay.rootHash ? '#4ade80' : '#ffc93c',
-                  boxShadow: replay.done && replay.rootHash ? '0 0 8px #4ade80' : '0 0 8px #ffc93c',
+                  background: replay.done ? '#4ade80' : '#ffc93c',
+                  boxShadow: replay.done ? '0 0 8px #4ade80' : '0 0 8px #ffc93c',
                 }}
               />
               <p className="px-heading text-sm sm:text-base" style={{ color: '#ffc93c', textShadow: '2px 2px 0 #11111c' }}>
                 {replay.done
-                  ? (replay.rootHash ? 'Replay stored on 0G ✓' : 'Match complete')
-                  : 'Securing replay on 0G Storage…'}
+                  ? (replay.arcPot ? `Pot paid out · ${replay.arcPot} USDC` : 'Match complete')
+                  : 'Settling the pot on Arc…'}
               </p>
-              {replay.done && replay.rootHash && (
-                <p className="px-heading text-[8px] uppercase tracking-wider text-[#9fb0d8] break-all max-w-[260px]">
-                  {replay.rootHash.slice(0, 18)}…{replay.rootHash.slice(-6)}
-                </p>
-              )}
             </div>
           </motion.div>
         )}

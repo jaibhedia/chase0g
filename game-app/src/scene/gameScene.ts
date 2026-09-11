@@ -145,7 +145,7 @@ export class GameScene extends Phaser.Scene {
   /** Last-known 0G Compute status (pushed to the store for the HUD pill). */
   private ogEnabled = false;
   private ogSource: 'og' | 'cache' | 'fallback' = 'fallback';
-  // --- 0G Storage replay (Phase 2) ---
+  // --- Match-end settlement result (arrives over `replay-stored`) ---
   private replayNetBound = false;
   private onReplayStored?: (payload: any) => void;
   private replayRequested = false;
@@ -2036,16 +2036,29 @@ export class GameScene extends Phaser.Scene {
     vel.vx = Phaser.Math.Linear(vel.vx, targetVx, hasInput ? accelBlend : dragBlend);
     vel.vy = Phaser.Math.Linear(vel.vy, targetVy, hasInput ? accelBlend : dragBlend);
 
+    /**
+     * Move in small steps, sliding along walls rather than stopping dead on them.
+     *
+     * This used to zero the whole axis on contact (`vel.vx = 0`). Brushing a wall while
+     * holding a direction therefore reset that axis every single frame, so the velocity
+     * lerp never built past its first step and the player crawled — until they released
+     * the keys and let it re-accelerate from clean state. That is the "I'm suddenly
+     * running slow and have to let go" bug, and it triggers on any diagonal along
+     * geometry, which on a map this size is most of the map.
+     *
+     * A blocked axis now simply doesn't advance this step, leaving the other axis at
+     * full speed: you slide along the wall instead of sticking to it. The per-step offset
+     * is recomputed from the live velocity too — it was derived once before the loop, so
+     * a mid-loop change had no effect until the next frame.
+     */
     const moveX = vel.vx * dt;
     const moveY = vel.vy * dt;
     const steps = Math.max(1, Math.ceil(Math.max(Math.abs(moveX), Math.abs(moveY)) / 8));
-    const sx = moveX / steps;
-    const sy = moveY / steps;
     for (let i = 0; i < steps; i++) {
+      const sx = (vel.vx * dt) / steps;
+      const sy = (vel.vy * dt) / steps;
       if (!this.getCollidingObject(human.x + sx, human.y, PLAYER_SIZE)) human.x += sx;
-      else vel.vx = 0;
       if (!this.getCollidingObject(human.x, human.y + sy, PLAYER_SIZE)) human.y += sy;
-      else vel.vy = 0;
     }
     this.playerVelocity[human.id] = vel;
 
@@ -2421,7 +2434,32 @@ export class GameScene extends Phaser.Scene {
     const tv = this.playerVelocity[target.id] || { vx: 0, vy: 0 };
     const dist = Math.hypot(target.x - bot.x, target.y - bot.y);
     const frames = Math.min(dist / speed, 45) * strength;
-    return { x: target.x + tv.vx * frames, y: target.y + tv.vy * frames };
+    const ax = target.x + tv.vx * frames;
+    const ay = target.y + tv.vy * frames;
+
+    /**
+     * Fan the pursuers out so they surround instead of stacking.
+     *
+     * Separation keeps bots from overlapping each other, but every one of them still
+     * solved for the same aim point and took the same line to it. The result was the
+     * dogpile: a ring forms on the egg holder, one bot snatches, everyone re-converges on
+     * the new holder a few pixels away, and it loops in place looking broken.
+     *
+     * Each bot gets a stable lateral offset from its id, applied perpendicular to its
+     * approach, so they arc in from different sides. The offset shrinks with distance and
+     * reaches zero on contact — they spread out across the map and still close properly
+     * for the tag, rather than orbiting forever.
+     */
+    const dx = ax - bot.x;
+    const dy = ay - bot.y;
+    const d = Math.hypot(dx, dy);
+    if (d < 1) return { x: ax, y: ay };
+    // Stable per-bot value in [-1, 1] — same bot always takes the same side.
+    let h = 0;
+    for (let i = 0; i < bot.id.length; i++) h = (h * 31 + bot.id.charCodeAt(i)) | 0;
+    const side = ((h % 1000) / 500) - 1;
+    const lateral = Math.min(d * 0.4, 130) * side;
+    return { x: ax + (-dy / d) * lateral, y: ay + (dx / d) * lateral };
   }
 
   private moveTowards(player: Player, tx: number, ty: number, speed: number) {

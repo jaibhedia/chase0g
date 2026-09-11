@@ -43,18 +43,19 @@ export interface AgentIntent {
   taunt?: string;
 }
 
-/** Verifiable match replay stored on 0G Storage (Phase 2). `rootHash` is the Merkle
- *  root that addresses the replay bundle (result + AI decision transcript). */
+/**
+ * End-of-match settlement state: whether the pot has been paid and what it was.
+ *
+ * Still called ReplayInfo, and still delivered over `replay-stored`, because it used to
+ * carry the 0G Storage replay hashes that have since been removed.
+ */
 export interface ReplayInfo {
   storing: boolean;
   done: boolean;
-  rootHash: string | null;
-  txHash: string | null;
-  /** 0G Chain tx that posted this match to the on-chain leaderboard (Phase 3). */
-  chainTxHash: string | null;
-  transcriptLen: number;
-  ogStorageEnabled: boolean;
-  ogChainEnabled: boolean;
+  /** Arc payout tx, pot size in USDC, explorer link. Null for an unstaked room. */
+  arcTxHash: string | null;
+  arcPot: string | null;
+  arcExplorer: string | null;
 }
 
 /** One blip on the minimap. Fed from the scene at ~12Hz (throttled). */
@@ -200,7 +201,7 @@ const initialState = {
   paused: false,
   ogStatus: { live: false, source: 'fallback' as const },
   minimap: { w: 0, h: 0, dots: [] as MinimapDot[] },
-  replay: { storing: false, done: false, rootHash: null, txHash: null, chainTxHash: null, transcriptLen: 0, ogStorageEnabled: false, ogChainEnabled: false } as ReplayInfo,
+  replay: { storing: false, done: false, arcTxHash: null, arcPot: null, arcExplorer: null } as ReplayInfo,
 };
 
 export const useGameStore = create<GameState>((set, get) => ({

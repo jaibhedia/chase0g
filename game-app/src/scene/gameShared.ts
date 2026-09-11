@@ -6,18 +6,19 @@ const COUNTDOWN_DURATION = 3;
 /**
  * Round length in seconds.
  *
- * 45, down from 120. On a map this size two minutes is mostly dead air — the egg changes
- * hands early and the rest is a lap of the same arena. A short round also means a judge
- * or a first-time player sees a whole match, result screen included, inside a minute.
+ * 60, down from 120. On a map this size two minutes is mostly dead air — the egg changes
+ * hands early and the rest is a lap of the same arena. 45 was tried and read as rushed:
+ * a round has to leave room for the egg to change hands more than once, or the winner is
+ * just whoever grabbed it last.
  *
  * The bot difficulty ramp is expressed as a fraction of this, so it rescales on its own:
- * bots still open easy and reach medium at the whistle, just over 45 seconds instead of
+ * bots still open easy and reach medium at the whistle, just over 60 seconds instead of
  * 120, which makes the escalation more noticeable rather than less.
  *
  * Single source of truth — the server derives remaining time from its own start
  * timestamp and this constant, so there is no second number to keep in step.
  */
-const GAME_DURATION = 45;
+const GAME_DURATION = 60;
 const TAG_COOLDOWN = 1200;
 
 let isGameInitialized = false;
