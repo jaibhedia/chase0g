@@ -70,6 +70,29 @@ credential is issued under, not its deprecation status, would remove the hesitat
 - **`signal` binding** is well explained, and the note that "your backend should enforce
   the same value" is the right warning in the right place.
 
+### 🔧 Two separate human-gated approvals to test one credential
+
+Getting to a first test proof requires **two** independent approvals from a human, and they
+are documented in different places:
+
+1. **Sandbox access** — a Google Form ([link](https://forms.gle/mqbaiwMvX5MzmKdY8)),
+   referenced from the resources list.
+2. **The Selfie Check beta feature flag on your specific app** — "request access through
+   your World point of contact", mentioned only in the second paragraph of the sandbox
+   testing guide.
+
+Nothing connects them. A developer who finds the form first can reasonably believe they're
+unblocked, submit it, start building, and only discover the second gate when they open the
+testing guide — by which point they've serialised two unknown turnarounds instead of
+requesting both at once. We hit exactly this.
+
+**Suggested fix:** state both prerequisites together, up front, on
+[How to get access](https://docs.world.org/world-id/sandbox/sandbox-access) — ideally as a
+checklist ("you need: sandbox access **and** the beta flag on your app_id"). Even better,
+let the Developer Portal show a per-app Selfie Check status so you can see which of the two
+you're still waiting on. On a time-boxed build like a hackathon, a serialised approval is
+the difference between shipping and not.
+
 ### 🔧 Gap: nothing says nullifier casing can vary
 
 Nullifiers are documented as "0x-prefixed hex strings representing 256-bit integers", and
@@ -96,11 +119,17 @@ security vulnerabilities") gestures at this but doesn't say what the failure act
 ## 3. Sandbox App
 
 > **TODO — fill in after sandbox access is granted**
-> (requested via https://forms.gle/mqbaiwMvX5MzmKdY8).
+> (requested via https://forms.gle/mqbaiwMvX5MzmKdY8) **and** the Selfie Check beta flag is
+> enabled on our `app_id`.
 >
-> Cover: how long access took; test-user setup; which proof states were reproducible
-> (success, cancel, timeout, already-verified, rejected); whether error codes surfaced to
-> `onError` were specific enough to act on; any edge case that could not be simulated.
+> Cover: how long each of the two approvals took; test-user setup; which proof states were
+> reproducible (success, cancel, timeout, already-verified, rejected); whether error codes
+> surfaced to `onError` were specific enough to act on; any edge case that could not be
+> simulated.
+
+Tested on **Android** (private Google Play testing link) with the **Web app / Hot**
+surface — desktop browser, QR handoff to the phone, proof returned to the originating web
+session. This is the flow real players will use, since the game runs in a browser.
 
 Two things we specifically want to test and could not without sandbox access:
 
@@ -121,6 +150,7 @@ Two things we specifically want to test and could not without sandbox access:
 | Selfie Check example omits required `allow_legacy_proofs` | **High** — doesn't compile | Only the Selfie Check example is affected |
 | `selfieCheckLegacy` naming reads as deprecated | Medium | Sits next to an actually-deprecated `deviceLegacy` |
 | Casing-as-vulnerability not stated outright | Medium | Obvious implementation is the unsafe one |
+| Two separate human approvals (sandbox + per-app beta flag), documented apart | **High** — serialises two unknown turnarounds | Easy to request only one and think you're unblocked |
 | Sandbox access is a Google Form with unknown turnaround | Medium | Blocks end-to-end testing; a self-serve staging path would help |
 | No documented way to reset a test user's nullifier | Low | Makes "already claimed" hard to test repeatedly |
 
