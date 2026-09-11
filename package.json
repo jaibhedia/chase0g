@@ -9,6 +9,7 @@
     "start": "next start",
     "lint": "next lint",
     "socket:dev": "cd server && npm run dev",
+    "socket:start": "cd server && npm start",
     "dev:game": "cd game-app && npm run dev",
     "build:all": "cd game-app && npm ci --include=dev && npm run build && cd .. && rm -rf public/game-app && cp -r game-app/dist public/game-app && npm run build"
   },

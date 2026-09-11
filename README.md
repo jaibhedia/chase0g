@@ -217,6 +217,22 @@ The game is served from `/game-app/index.html` on the **same domain** as the she
 targets that path in production (no env needed); the game uses same-origin relative paths to return
 to the lobby/results.
 
+Then run it — **two processes, not three.** The game is bundled into the shell now, so there
+is no `:5173` in production:
+
+```bash
+# Terminal 1 — Next shell + bundled game
+npm run start          # http://localhost:3000
+
+# Terminal 2 — Express + Socket.IO backend
+npm run socket:start   # http://localhost:3001
+```
+
+**`npm run start` alone is not the app.** It serves the landing page, the lobby and the game
+bundle, so single-player works and everything *looks* fine — but multiplayer, the faucet,
+staking, settlement and the AI agents all live on the socket server. Without Terminal 2 you
+get a lobby that never fills and a Play button that leads to a match with nothing in it.
+
 ---
 
 ## Deployment
