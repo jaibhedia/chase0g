@@ -50,14 +50,53 @@ CORS_ORIGIN              ← set in Step 3, once you have the Vercel URL
 Your URL will be **`https://chase-dinosaurs.onrender.com`**.
 
 > ⚠️ **The free plan spins down after ~15 min idle and cold-starts in ~50s.** To a judge
-> that's a dead link. Either upgrade to **Starter ($7)**, or point
-> [cron-job.org](https://cron-job.org) at `/health` every 10 minutes. Decide now, not Sunday.
+> that's a dead link. Either upgrade to **Starter ($7)**, or set up the keepalive below.
+> Decide now, not Sunday.
+
+### Keepalive (free plan only)
+
+At [cron-job.org](https://cron-job.org) → **Create cronjob**:
+
+| Field | Value |
+|---|---|
+| Title | `chase keepalive` |
+| URL | `https://chase-dinosaurs.onrender.com/health` |
+| Schedule | **Every 10 minutes** |
+| Request method | `GET` |
+| Treat as success | HTTP `200` |
+
+Ten minutes, not fifteen — Render's idle timer is ~15, so you want margin, and a ping that
+lands at 14:59 is a coin flip.
+
+`/health` is built for this: no RPC, no network calls, nothing async, every value an
+in-memory read. It answers in **under a millisecond**, so pinging it forever costs nothing.
+
+Turn on **email on failure** and you get free uptime monitoring — if the service dies during
+judging you find out from an inbox rather than from a judge.
+
+> This keeps the container warm; it does **not** stop Render's free-tier monthly hour cap.
+> If you expect heavy traffic over the weekend, $7 is still the safer call.
 
 ### Verify before moving on
 
 ```bash
 curl https://chase-dinosaurs.onrender.com/health
 ```
+
+**Check one field:**
+
+```json
+{
+  "ok": true,
+  "fullyConfigured": true,
+  "configured": { "ai": true, "arc": true, "faucet": true, "graph": true, "world": true }
+}
+```
+
+`fullyConfigured: false` means a key didn't land. `configured` names which one. Every
+integration degrades to a no-op rather than crashing when its key is missing — correct
+behaviour, and also why a half-configured server boots perfectly and silently does half its
+job. This is the one-glance answer without reading boot logs.
 
 Then check the Render **Logs** tab for the boot lines. Every one of these must be present:
 

@@ -323,13 +323,44 @@ app.use(express.json({ limit: '4kb' }));
 app.get('/', (_req, res) => {
   res.type('text/plain').send('chase socket ok');
 });
+/**
+ * Liveness + configuration report.
+ *
+ * Two jobs, both cheap on purpose:
+ *
+ *  1. **Keepalive.** Render's free plan spins a service down after ~15 minutes idle and
+ *     cold-starts in ~50s, which to anyone clicking a link is indistinguishable from a dead
+ *     site. A cron hitting this every 10 minutes keeps it warm. So this handler does no
+ *     network calls, no RPC, and nothing async — every value is an in-memory read, and it
+ *     stays safe to hammer.
+ *
+ *  2. **Deploy verification.** Every integration here degrades to a no-op rather than
+ *     crashing when its key is missing, which is the right behaviour and also means a
+ *     half-configured server boots perfectly and silently does half its job. `configured`
+ *     is the one-glance answer to "did all the env vars actually land", without shelling
+ *     into the host to read boot logs.
+ *
+ * Deliberately excludes the faucet's *balance* — that needs an RPC round trip, and putting
+ * it here would turn a keepalive ping into an on-chain call every 10 minutes forever.
+ */
 app.get('/health', (_req, res) => {
+  const configured = {
+    ai: aiEnabled,
+    arc: arcEnabled,
+    faucet: faucetEnabled,
+    graph: GRAPH_ENABLED,
+    world: worldEnabled,
+  };
   res.json({
     ok: true,
     rooms: rooms.size,
     uptime: process.uptime(),
+    // True only when every integration is armed — the single field to check after a deploy.
+    fullyConfigured: Object.values(configured).every(Boolean),
+    configured,
     ai: { enabled: aiEnabled, provider: aiProviderName, model: AI_MODEL || null },
     arc: { enabled: arcEnabled, readEnabled: arcReadEnabled },
+    world: { enabled: worldEnabled, environment: worldConfig().environment },
   });
 });
 
