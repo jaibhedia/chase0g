@@ -29,8 +29,6 @@ import { ethers } from 'ethers';
 import { Server, type Socket } from 'socket.io';
 import { decideIntents, forgetRoom, getTranscript, type AgentSnapshot } from './agents/agentBrain';
 import { aiEnabled, getAiClient, AI_MODEL, aiProviderName } from './ai/provider';
-import { uploadReplay, ogStorageEnabled } from './og/storage';
-import { submitMatch, getRecent, ogChainEnabled, ogChainReadEnabled } from './og/chain';
 import { settleMatch, getArcMatch, arcEnabled, arcReadEnabled } from './arc/chaseStake';
 import { dripTo, faucetEnabled, faucetStatus } from './arc/faucet';
 
@@ -85,7 +83,8 @@ const agentTickInFlight = new Set<string>();
 /** Replay upload bookkeeping (Phase 2 / 0G Storage). Upload a given room's replay to
  *  0G Storage exactly once, then serve the cached {rootHash,txHash} to any later asker
  *  (each MP client emits store-replay independently when its match ends). */
-interface StoredReplay { rootHash: string | null; txHash: string | null; chainTxHash: string | null; transcriptLen: number; ogStorageEnabled: boolean; ogChainEnabled: boolean; arcTxHash: string | null; arcPot: string | null; arcExplorer: string | null; }
+/** What a finished match reports back: the settled pot, or nulls for an unstaked room. */
+interface StoredReplay { arcTxHash: string | null; arcPot: string | null; arcExplorer: string | null; }
 const replayResults = new Map<string, StoredReplay>();
 const replayInFlight = new Set<string>();
 
@@ -224,7 +223,7 @@ app.get('/health', (_req, res) => {
     ok: true,
     rooms: rooms.size,
     uptime: process.uptime(),
-    ai: { enabled: aiEnabled, provider: aiProviderName, model: AI_MODEL || null, ogStorageEnabled, ogChainEnabled, ogChainReadEnabled },
+    ai: { enabled: aiEnabled, provider: aiProviderName, model: AI_MODEL || null },
     arc: { enabled: arcEnabled, readEnabled: arcReadEnabled },
   });
 });
@@ -271,16 +270,11 @@ app.get('/arc/match/:roomCode', async (req, res) => {
   }
 });
 
-// Phase 3 — the on-chain leaderboard, read from the ChaseLeaderboard contract. The
-// results screen fetches this to render a trustless leaderboard (each row links back to
-// its 0G Storage replay root hash). Empty when no contract address is configured.
-app.get('/leaderboard', async (_req, res) => {
-  try {
-    const rows = ogChainReadEnabled ? await getRecent(10) : [];
-    res.json({ enabled: ogChainReadEnabled, rows });
-  } catch (err) {
-    res.json({ enabled: ogChainReadEnabled, rows: [], error: (err as Error).message });
-  }
+// GET /leaderboard is gone along with the 0G leaderboard contract it read. Kept as a
+// stub rather than a 404 so an older client bundle cached in someone's browser renders
+// an empty board instead of erroring.
+app.get('/leaderboard', (_req, res) => {
+  res.json({ enabled: false, rows: [] });
 });
 
 const httpServer = createServer(app);
@@ -683,32 +677,15 @@ io.on('connection', (socket: Socket<any, any, any, SocketData>) => {
     if (replayInFlight.has(rc)) return; // upload underway; the broadcast will reach us
     replayInFlight.add(rc);
 
-    const transcript = getTranscript(rc);
     try {
-      const bundle = {
-        game: 'chase-zero',
-        version: 1,
-        roomCode: rc,
-        finishedAt: Date.now(),
-        result: payload?.result ?? null,
-        // The proof the agents really reasoned on 0G: every decision, timestamped.
-        aiDecisionTranscript: transcript,
-        decisionCount: transcript.length,
-      };
-      const uploaded = ogStorageEnabled ? await uploadReplay(bundle) : null;
-      if (uploaded) console.log(`[0G Storage] replay stored room=${rc} root=${uploaded.rootHash} decisions=${transcript.length}`);
-
-      // Phase 3 — post the result on-chain. Decoupled from Storage: the leaderboard
-      // records the winner even when the replay upload failed (Storage testnet flake),
-      // just with an empty rootHash for that row. Storage success links the row to its
-      // verifiable replay; either way the deployed leaderboard stays populated.
-      let chainTxHash: string | null = null;
-      if (ogChainEnabled) {
-        const w = payload?.result?.winner;
-        const posted = await submitMatch(String(w?.name ?? 'Unknown'), Number(w?.eggHoldCount ?? 0), uploaded?.rootHash ?? '');
-        chainTxHash = posted?.txHash ?? null;
-        if (posted) console.log(`[0G Chain] leaderboard updated room=${rc} tx=${posted.txHash}${uploaded?.rootHash ? '' : ' (no replay hash — Storage unavailable)'}`);
-      }
+      // 0G Storage replays and the 0G leaderboard used to run here. Both are gone: they
+      // produced a second, weaker on-chain story competing with the staking one, and a
+      // results screen that explained a Merkle root to someone who just wanted to know
+      // whether they won money. 0G now does one job — the agent brains — which is the
+      // part players actually feel.
+      //
+      // This handler stays because it is also where settlement happens: the game scene
+      // emits `store-replay` at match end, and that is the signal the pot can be paid.
 
       // Arc — pay out the USDC pot for ranked matches. Safe to call unconditionally:
       // a Free Play room has no on-chain match, so this no-ops. The replay root links
@@ -729,26 +706,21 @@ io.on('connection', (socket: Socket<any, any, any, SocketData>) => {
           'or the room predates wallet capture.',
         );
       }
-      const settled = await settleMatch(rc, winnerAddress, uploaded?.rootHash ?? '');
+      // Empty replay root: the settle() signature still takes one, and an empty string is
+      // the contract's own "no linked replay" value.
+      const settled = await settleMatch(rc, winnerAddress, '');
 
       const result: StoredReplay = {
-        rootHash: uploaded?.rootHash ?? null,
-        txHash: uploaded?.txHash ?? null,
-        chainTxHash,
-        transcriptLen: transcript.length,
-        ogStorageEnabled,
-        ogChainEnabled,
         arcTxHash: settled?.txHash ?? null,
         arcPot: settled?.pot ?? null,
         arcExplorer: settled?.explorer ?? null,
       };
-      // Cache once we have a durable artifact (a stored replay, an on-chain row, or a
-      // settled pot) so we don't re-submit for the same room.
-      if (uploaded || chainTxHash || settled) replayResults.set(rc, result);
+      // Cache once the pot is settled so a second match-end emit doesn't re-submit.
+      if (settled) replayResults.set(rc, result);
       reply(result);
     } catch (err) {
-      console.warn('[0G Storage] store-replay error:', (err as Error).message);
-      socket.emit('replay-stored', { rootHash: null, txHash: null, chainTxHash: null, transcriptLen: transcript.length, ogStorageEnabled, ogChainEnabled, arcTxHash: null, arcPot: null, arcExplorer: null });
+      console.warn('[arc] settle-on-match-end error:', (err as Error).message);
+      socket.emit('replay-stored', { arcTxHash: null, arcPot: null, arcExplorer: null });
     } finally {
       replayInFlight.delete(rc);
     }

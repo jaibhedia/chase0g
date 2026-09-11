@@ -3082,18 +3082,11 @@ export class GameScene extends Phaser.Scene {
       this.replayNetBound = true;
       this.onReplayStored = (payload: any) => {
         if (!payload) return;
+        // The settled pot, which is all `replay-stored` carries now that the 0G Storage
+        // replay and 0G leaderboard are gone.
         const info = {
           storing: false,
           done: true,
-          rootHash: payload.rootHash ?? null,
-          txHash: payload.txHash ?? null,
-          chainTxHash: payload.chainTxHash ?? null,
-          transcriptLen: payload.transcriptLen ?? 0,
-          ogStorageEnabled: !!payload.ogStorageEnabled,
-          ogChainEnabled: !!payload.ogChainEnabled,
-          // The settled pot. The server has always sent these three and this handler
-          // dropped them on the floor, which is the whole reason a winner never saw that
-          // they'd been paid — the payout happened on-chain and the UI never heard.
           arcTxHash: payload.arcTxHash ?? null,
           arcPot: payload.arcPot ?? null,
           arcExplorer: payload.arcExplorer ?? null,
