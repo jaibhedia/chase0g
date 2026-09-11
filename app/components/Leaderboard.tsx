@@ -19,8 +19,31 @@ import { arcAddressUrl } from '@/lib/arc/chain';
 
 const ENDPOINT = process.env.NEXT_PUBLIC_SUBGRAPH_URL || '';
 
+/**
+ * House wallets, excluded from the standings.
+ *
+ * These are real players as far as the escrow is concerned — they staked and they won —
+ * but they are ours: the settlement authority (which is also the deployer, and appears
+ * with a perfect record from testing) and the faucet. Leaving the wallet that *settles
+ * matches* on a leaderboard it can settle itself to the top of invites exactly the
+ * question you do not want asked at a demo, and the answer ("it was us testing") is
+ * worse than just not showing it.
+ *
+ * Filtered in the query rather than after the fetch, so `first: 10` still returns ten
+ * real players instead of eight plus two hidden rows.
+ */
+const HOUSE_WALLETS = [
+  '0x5b43790ba1cfd1df57cb280b3ae514e35bcaab09', // settlement authority / deployer
+  '0xe49ac759ae9236bac2bc4438ac9c73cb156b9efa', // faucet bot
+];
+
 const QUERY = `{
-  players(first: 10, orderBy: netProfit, orderDirection: desc, where: { matchesPlayed_gt: 0 }) {
+  players(
+    first: 10
+    orderBy: netProfit
+    orderDirection: desc
+    where: { matchesPlayed_gt: 0, id_not_in: ${JSON.stringify(HOUSE_WALLETS)} }
+  ) {
     id
     matchesPlayed
     matchesWon
