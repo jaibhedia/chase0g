@@ -59,6 +59,33 @@ curl -s -X POST "$SUBGRAPH_URL" -H 'Content-Type: application/json' \
   -d '{"query":"{ players(first: 10, orderBy: netProfit, orderDirection: desc) { id matchesPlayed matchesWon netProfit } }"}'
 ```
 
+### World ID — a faucet that can't be farmed
+
+New players get 2 USDC automatically so they can afford a ranked buy-in. The faucet's
+uniqueness keys were an Arc address and a Privy user id — and Privy signs you in with an
+email, so **ten inboxes were ten "new players" and twenty USDC.** A real sybil hole in a
+faucet holding real money.
+
+**World ID Selfie Check** closes it. The nullifier it returns is deterministic per
+(person, app, action) and unlinkable across apps: one live human, one claim, no identity.
+We never learn a name and never see a face.
+
+It's deliberately the *low-assurance* credential. Orb Proof of Human would be stronger and
+would also mean "go find an Orb before you can play a browser game" — the wrong trade for
+a 2 USDC faucet. Selfie Check is the amount of certainty the risk actually justifies.
+
+| Piece | Where |
+|---|---|
+| Proof request signing + verification | [`server/src/world/selfieCheck.ts`](server/src/world/selfieCheck.ts) |
+| Third uniqueness key on the ledger | [`server/src/arc/faucet.ts`](server/src/arc/faucet.ts) |
+| Claim UI | [`app/components/WorldFaucetGate.tsx`](app/components/WorldFaucetGate.tsx) |
+
+Proofs are verified **server-side** against World's Developer Portal — a browser-asserted
+"verified: true" is worth nothing, and the nullifier that keys the ledger has to be one
+the server watched World confirm. The gate only appears for players the faucet would
+actually pay; anyone already funded is never asked. Unset the keys and the faucet reverts
+to its older behaviour, which the boot log states outright.
+
 ### Base gameplay (carried over from the Chase engine)
 
 - 6 characters each with a unique power-up (unlocks at 15s)
@@ -112,6 +139,10 @@ ARC_PRIVATE_KEY=        # settlement authority; the wallet ChaseStake records as
 FAUCET_PRIVATE_KEY=     # SEPARATE wallet that drips 2 USDC to each new player
 OG_ROUTER_API_KEY=      # 0G Compute — without it agents fall back to scripted play
 SUBGRAPH_URL=           # same Studio URL; lets agents factor in players' on-chain records
+WORLD_APP_ID=           # developer.world.org — arms the Selfie Check gate on the faucet
+WORLD_RP_ID=
+WORLD_SIGNING_KEY=      # SECRET: signs proof requests
+WORLD_ENVIRONMENT=staging
 ```
 
 The faucet and settlement keys are deliberately different wallets: the faucet gives money to

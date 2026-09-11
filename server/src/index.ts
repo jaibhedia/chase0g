@@ -31,7 +31,8 @@ import { decideIntents, forgetRoom, getTranscript, type AgentSnapshot } from './
 import { getRecords, primeRecords, GRAPH_ENABLED } from './graph/playerRecords';
 import { aiEnabled, getAiClient, AI_MODEL, aiProviderName } from './ai/provider';
 import { settleMatch, getArcMatch, arcEnabled, arcReadEnabled } from './arc/chaseStake';
-import { dripTo, faucetEnabled, faucetStatus } from './arc/faucet';
+import { dripTo, faucetEnabled, faucetStatus, faucetEligibility } from './arc/faucet';
+import { worldEnabled, worldConfig, signProofRequest, verifyProof, WORLD_ACTION } from './world/selfieCheck';
 
 const PORT = Number(process.env.SOCKET_PORT || process.env.PORT || 3001);
 /** How long a disconnected player's slot is held open for them to come back. */
@@ -286,14 +287,72 @@ app.post('/arc/faucet', faucetLimiter, async (req, res) => {
     res.status(503).json({ ok: false, reason: 'Faucet is not configured on this server.' });
     return;
   }
-  const body = (req.body ?? {}) as { address?: unknown; userId?: unknown };
+  const body = (req.body ?? {}) as { address?: unknown; userId?: unknown; proof?: unknown };
+
+  /**
+   * With the World gate on, the proof is verified here rather than trusted from the
+   * client. A nullifier posted by the browser is just a string — anyone could replay
+   * someone else's, or invent one — so the only value that counts is the one we pulled
+   * out of a payload World's Developer Portal just confirmed.
+   */
+  let nullifier: string | null = null;
+  if (worldEnabled) {
+    if (!body.proof) {
+      // Only ask for a selfie from someone the faucet would actually pay. Anyone already
+      // funded, already claimed, or holding enough gets the plain refusal instead, and is
+      // never shown the gate.
+      const elig = await faucetEligibility(
+        String(body.address ?? ''),
+        typeof body.userId === 'string' ? body.userId : null,
+      );
+      if (!elig.eligible) {
+        res.status(400).json({ ok: false, reason: elig.reason ?? 'Not eligible.' });
+        return;
+      }
+      res.status(400).json({ ok: false, reason: 'Verify you are a real person to claim your USDC.', needsWorldId: true });
+      return;
+    }
+    const verified = await verifyProof(body.proof);
+    if (!verified.ok) {
+      res.status(400).json({ ok: false, reason: verified.reason, needsWorldId: true });
+      return;
+    }
+    nullifier = verified.nullifier;
+  }
+
   const result = await dripTo(
     String(body.address ?? ''),
     typeof body.userId === 'string' ? body.userId : null,
+    nullifier,
   );
   // 400 rather than 500 on refusal: every reason the faucet says no (already claimed,
   // already funded, empty) is a fact about the request, not a server failure.
   res.status(result.ok ? 200 : 400).json(result);
+});
+
+/**
+ * Public World ID config, so the browser can open the IDKit widget without any of it
+ * being baked into the Next bundle at build time. `enabled: false` is the signal for the
+ * client to skip the gate entirely.
+ */
+app.get('/world/config', (_req, res) => {
+  res.json(worldConfig());
+});
+
+/**
+ * Sign a proof request.
+ *
+ * Rate-limited with the faucet's own limiter because that is what it guards — a signature
+ * is only useful for claiming, so the two should run out together. The signing key never
+ * leaves this process.
+ */
+app.post('/world/rp-signature', faucetLimiter, (_req, res) => {
+  const sig = signProofRequest();
+  if (!sig) {
+    res.status(503).json({ ok: false, reason: 'World ID is not configured on this server.' });
+    return;
+  }
+  res.json(sig);
 });
 
 app.get('/arc/match/:roomCode', async (req, res) => {
@@ -894,6 +953,13 @@ httpServer.listen(PORT, () => {
     }
     console.log(`[faucet] ${s.address} holds ${Number(s.usdc).toFixed(2)} USDC — roughly ${Math.max(0, Math.floor((Number(s.usdc) - 1) / 2))} more players`);
   });
+  // Say plainly whether the faucet is sybil-gated, because the failure mode is silent:
+  // an ungated faucet works perfectly right up until someone drains it with ten emails.
+  if (worldEnabled) {
+    console.log(`[world] Selfie Check armed — faucet requires proof of human (action "${WORLD_ACTION}")`);
+  } else {
+    console.warn('[world] disabled (set WORLD_APP_ID / WORLD_RP_ID / WORLD_SIGNING_KEY). Faucet is keyed on email + address only.');
+  }
 });
 
 /**

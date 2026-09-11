@@ -21,6 +21,7 @@
 import { ethers } from 'ethers';
 import { readFileSync, writeFileSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
+import { worldEnabled } from '../world/selfieCheck';
 
 /** Drip size. Two matches at the 1 USDC default buy-in, plus room for gas. */
 const DRIP_USDC = 2n;
@@ -49,28 +50,38 @@ export const faucetEnabled = Boolean(PRIVATE_KEY);
  * a wallet holding a fixed amount of testnet USDC that is the difference between a
  * faucet and a leak.
  *
- * Two independent keys, because they fail differently: an address stops the same wallet
- * claiming twice, and a Privy user id stops one account claiming again from a wallet it
- * re-provisioned. Either one matching is enough to refuse.
+ * Three independent keys, because they fail differently: an address stops the same wallet
+ * claiming twice, a Privy user id stops one account claiming again from a wallet it
+ * re-provisioned, and a World ID nullifier stops one *person* claiming from a fresh email.
+ * Any one matching is enough to refuse.
+ *
+ * The nullifier is the only key of the three that costs anything to forge. An address and
+ * a user id are both free to mint — Privy signs you in with an email, so ten inboxes are
+ * ten "new players" — which made the first two keys a speed bump rather than a limit. The
+ * nullifier is per-person and unlinkable, so it is the one that actually holds.
  */
 const CLAIMS_FILE = join(process.cwd(), '.faucet-claims.json');
 
 interface ClaimRecord {
   addresses: string[];
   userIds: string[];
+  nullifiers: string[];
 }
 
-function loadClaims(): { addresses: Set<string>; userIds: Set<string> } {
+function loadClaims(): { addresses: Set<string>; userIds: Set<string>; nullifiers: Set<string> } {
   try {
     const raw = JSON.parse(readFileSync(CLAIMS_FILE, 'utf8')) as Partial<ClaimRecord>;
     return {
       addresses: new Set(Array.isArray(raw.addresses) ? raw.addresses : []),
       userIds: new Set(Array.isArray(raw.userIds) ? raw.userIds : []),
+      // Absent in ledgers written before the World gate existed; an empty set is the
+      // correct reading of "nobody has proved humanity yet".
+      nullifiers: new Set(Array.isArray(raw.nullifiers) ? raw.nullifiers : []),
     };
   } catch {
     // Missing or corrupt file means nobody has claimed yet, which is the safe reading on
     // a testnet faucet: it costs play money, and refusing everyone would be worse.
-    return { addresses: new Set(), userIds: new Set() };
+    return { addresses: new Set(), userIds: new Set(), nullifiers: new Set() };
   }
 }
 
@@ -83,6 +94,7 @@ function persistClaims(): void {
     const data: ClaimRecord = {
       addresses: [...claimed.addresses],
       userIds: [...claimed.userIds],
+      nullifiers: [...claimed.nullifiers],
     };
     writeFileSync(tmp, JSON.stringify(data, null, 2));
     renameSync(tmp, CLAIMS_FILE);
@@ -105,16 +117,82 @@ function wallet(): ethers.Wallet | null {
   return new ethers.Wallet(PRIVATE_KEY, new ethers.JsonRpcProvider(RPC));
 }
 
-export async function dripTo(rawAddress: string, userId?: string | null): Promise<FaucetResult> {
-  if (!ethers.isAddress(rawAddress)) return { ok: false, reason: 'Not a valid address.' };
+/**
+ * Would this player actually be funded, ignoring the World gate?
+ *
+ * Exists so the client never asks for a selfie it has no use for. With the gate on, a
+ * no-proof request cannot be distinguished from an unfunded one without this, so a player
+ * who already has 5 USDC would be prompted to verify and then told they didn't need to —
+ * friction spent for nothing, on the credential whose entire selling point is low
+ * friction. Runs every check `dripTo` runs except the World requirement, and sends
+ * nothing.
+ */
+export async function faucetEligibility(
+  rawAddress: string,
+  userId?: string | null,
+): Promise<{ eligible: boolean; reason?: string }> {
+  if (!ethers.isAddress(rawAddress)) return { eligible: false, reason: 'Not a valid address.' };
   const to = ethers.getAddress(rawAddress);
   const uid = typeof userId === 'string' && userId ? userId.slice(0, 128) : null;
 
   const w = wallet();
+  if (!w) return { eligible: false, reason: 'Faucet is not configured on this server.' };
+  if (claimed.addresses.has(to)) return { eligible: false, reason: 'This wallet has already been funded.' };
+  if (uid && claimed.userIds.has(uid)) return { eligible: false, reason: 'This account has already been funded.' };
+
+  try {
+    const [recipientBalance, faucetBalance] = await Promise.all([
+      w.provider!.getBalance(to),
+      w.provider!.getBalance(w.address),
+    ]);
+    if (recipientBalance >= ALREADY_FUNDED_WEI) {
+      return { eligible: false, reason: 'This wallet already has enough USDC to play.' };
+    }
+    if (faucetBalance < DRIP_WEI + RESERVE_WEI) {
+      return { eligible: false, reason: 'Faucet is empty — ask the team to top it up.' };
+    }
+    return { eligible: true };
+  } catch {
+    // An RPC blip should not present as "you already have money" — let the caller try the
+    // real claim and surface a genuine error there.
+    return { eligible: true };
+  }
+}
+
+/**
+ * Send the drip.
+ *
+ * `nullifier` is a World ID Selfie Check nullifier, already verified by the caller. When
+ * the World gate is configured it is REQUIRED — see `worldEnabled` — because without it
+ * the only uniqueness keys are an address and an email, both free to mint. When World is
+ * not configured the faucet keeps its older, weaker behaviour rather than refusing
+ * everyone, since a faucet nobody can use is worse than a faucet that can be gamed for
+ * play money.
+ */
+export async function dripTo(
+  rawAddress: string,
+  userId?: string | null,
+  nullifier?: string | null,
+): Promise<FaucetResult> {
+  if (!ethers.isAddress(rawAddress)) return { ok: false, reason: 'Not a valid address.' };
+  const to = ethers.getAddress(rawAddress);
+  const uid = typeof userId === 'string' && userId ? userId.slice(0, 128) : null;
+  const nul = typeof nullifier === 'string' && nullifier ? nullifier.toLowerCase().slice(0, 128) : null;
+
+  const w = wallet();
   if (!w) return { ok: false, reason: 'Faucet is not configured on this server.' };
+
+  // With the gate on, an unproven caller never reaches the balance checks below — the
+  // point is to spend nothing, not to fail late.
+  if (worldEnabled && !nul) {
+    return { ok: false, reason: 'Verify you are a real person to claim your USDC.' };
+  }
 
   if (claimed.addresses.has(to)) return { ok: false, reason: 'This wallet has already been funded.' };
   if (uid && claimed.userIds.has(uid)) return { ok: false, reason: 'This account has already been funded.' };
+  if (nul && claimed.nullifiers.has(nul)) {
+    return { ok: false, reason: 'You have already claimed from this faucet.' };
+  }
   if (sending) return { ok: false, reason: 'Faucet is busy — try again in a moment.' };
 
   try {
@@ -135,6 +213,7 @@ export async function dripTo(rawAddress: string, userId?: string | null): Promis
     // between sending and recording would re-arm the address on restart.
     claimed.addresses.add(to);
     if (uid) claimed.userIds.add(uid);
+    if (nul) claimed.nullifiers.add(nul);
     persistClaims();
     sending = true;
 
@@ -146,6 +225,7 @@ export async function dripTo(rawAddress: string, userId?: string | null): Promis
     // A failed send should not burn the claim.
     claimed.addresses.delete(to);
     if (uid) claimed.userIds.delete(uid);
+    if (nul) claimed.nullifiers.delete(nul);
     persistClaims();
     const msg = e instanceof Error ? e.message : String(e);
     console.warn(`[faucet] send to ${to} failed: ${msg}`);
