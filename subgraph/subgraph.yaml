@@ -1,0 +1,41 @@
+specVersion: 1.0.0
+description: >-
+  Leaderboard and match history for Chase Dinosaurs, indexed from the ChaseStake
+  escrow on Arc. Every entity is derived from events the deployed contract already
+  emits, so this required no contract change.
+repository: https://github.com/jaibhedia/chasedinosaurs
+schema:
+  file: ./schema.graphql
+dataSources:
+  - kind: ethereum
+    name: ChaseStake
+    # The Graph's network slug for Arc testnet (chain id 5042002).
+    network: arc-testnet
+    source:
+      address: "0xD648def45026f437351D797dC3574fa97507BA83"
+      abi: ChaseStake
+      # The block the escrow was deployed in, found by binary-searching eth_getCode.
+      # Starting at 0 would make every redeploy re-scan ~61M empty blocks.
+      startBlock: 61111061
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      file: ./src/chase-stake.ts
+      entities:
+        - Match
+        - Stake
+        - Player
+        - Protocol
+      abis:
+        - name: ChaseStake
+          file: ./abis/ChaseStake.json
+      eventHandlers:
+        - event: MatchCreated(indexed bytes32,indexed address,uint256,uint64)
+          handler: handleMatchCreated
+        - event: PlayerJoined(indexed bytes32,indexed address,uint256,uint256)
+          handler: handlePlayerJoined
+        - event: MatchSettled(indexed bytes32,indexed address,uint256,string)
+          handler: handleMatchSettled
+        - event: Refunded(indexed bytes32,indexed address,uint256)
+          handler: handleRefunded

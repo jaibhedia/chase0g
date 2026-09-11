@@ -1,0 +1,18 @@
+{
+  "name": "chase-stake-subgraph",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Leaderboard and match history for Chase Dinosaurs, indexed from ChaseStake on Arc.",
+  "scripts": {
+    "codegen": "graph codegen",
+    "build": "graph build",
+    "auth": "graph auth",
+    "deploy": "graph deploy chase-stake",
+    "create-local": "graph create --node http://localhost:8020/ chase-stake",
+    "deploy-local": "graph deploy --node http://localhost:8020/ --ipfs http://localhost:5001 chase-stake"
+  },
+  "dependencies": {
+    "@graphprotocol/graph-cli": "0.97.1",
+    "@graphprotocol/graph-ts": "0.38.1"
+  }
+}

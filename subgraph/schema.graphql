@@ -1,0 +1,72 @@
+# Leaderboard data, derived entirely from events ChaseStake already emits on Arc.
+# Nothing here needs a contract change — every field below is reconstructed from logs
+# that exist on-chain from matches already played.
+
+"A single ranked match: one escrow, one pot, one winner."
+type Match @entity(immutable: false) {
+  "The matchId from the contract — keccak256 of the room code."
+  id: Bytes!
+  host: Bytes!
+  "Per-player buy-in, in USDC base units (6dp)."
+  stake: BigInt!
+  "Final pot. Grows with each PlayerJoined until the match settles."
+  pot: BigInt!
+  deadline: BigInt!
+  settled: Boolean!
+  winner: Bytes
+  "Pot actually paid out. Differs from `pot` only if the match was refunded instead."
+  payout: BigInt
+  players: [Stake!]! @derivedFrom(field: "match")
+  createdAt: BigInt!
+  settledAt: BigInt
+  createdTx: Bytes!
+  settledTx: Bytes
+}
+
+"One player's participation in one match."
+type Stake @entity(immutable: false) {
+  "matchId-player"
+  id: ID!
+  match: Match!
+  player: Player!
+  amount: BigInt!
+  refunded: Boolean!
+  joinedAt: BigInt!
+  tx: Bytes!
+}
+
+"""
+A wallet's running record. This is the leaderboard: sort by netProfit for "who is
+actually winning money", or by totalWon for "biggest earner".
+"""
+type Player @entity(immutable: false) {
+  "Lowercased address."
+  id: Bytes!
+  matchesPlayed: Int!
+  matchesWon: Int!
+  "Sum of every buy-in this wallet has paid."
+  totalStaked: BigInt!
+  "Sum of every pot this wallet has been paid."
+  totalWon: BigInt!
+  "Sum of every refund this wallet has reclaimed from an unsettled match."
+  totalRefunded: BigInt!
+  "totalWon + totalRefunded - totalStaked. Negative for a losing player."
+  netProfit: BigInt!
+  "Biggest single pot won."
+  biggestPot: BigInt!
+  firstSeenAt: BigInt!
+  lastPlayedAt: BigInt!
+  stakes: [Stake!]! @derivedFrom(field: "player")
+}
+
+"Single row of global counters, id = \"global\". Cheap headline numbers for the UI."
+type Protocol @entity(immutable: false) {
+  id: ID!
+  totalMatches: Int!
+  settledMatches: Int!
+  totalPlayers: Int!
+  "Lifetime USDC staked across every match."
+  totalVolume: BigInt!
+  "Lifetime USDC actually paid out to winners."
+  totalPaidOut: BigInt!
+}
