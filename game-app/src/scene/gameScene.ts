@@ -19,6 +19,16 @@ const SPRITE_SCALE = 4;
 // the local fast-tier steering reacts instantly between ticks, so the LLM only needs
 // to refresh high-level strategy/taunts occasionally.
 const AGENT_TICK_MS = 5000;
+/**
+ * How long a non-authority client waits on silence before steering the bots itself.
+ *
+ * The authority broadcasts ~30Hz, so 1.2s is ~36 missed packets — comfortably past a
+ * network hiccup and well short of a 60s match, where a frozen opponent for even five
+ * seconds is the whole round.
+ */
+const AGENT_TAKEOVER_MS = 1200;
+/** Extra wait per rank, so the room fails over in order instead of all at once. */
+const AGENT_TAKEOVER_STAGGER_MS = 1200;
 /** How long an overhead taunt bubble stays up after it arrives. */
 const TAUNT_TTL_MS = 4000;
 /** First power-up unlocks 15s into the match (matches the base reload cadence). */
@@ -130,6 +140,22 @@ export class GameScene extends Phaser.Scene {
   private agentAuthority = false;
   private onAgentState?: (payload: any) => void;
   private lastAgentStateSend = 0;
+  /**
+   * When we last heard the authority broadcast agent positions.
+   *
+   * The authority used to be picked once at match start and never revisited, which meant
+   * that if that player dropped — refreshed, closed the tab, lost signal — nobody took
+   * over. The bots simply froze in place for everyone else for the rest of the match, and
+   * from the inside that is indistinguishable from "the AI doesn't work". A 60-second
+   * match gives you no time to notice and re-host.
+   *
+   * So non-authority clients now watch for silence and promote themselves. See
+   * `maybeTakeOverAgents`.
+   */
+  private lastAgentStateAt = 0;
+  /** Our position in the deterministic authority order; stagger failover by rank so two
+   *  clients don't promote themselves in the same instant. */
+  private authorityRank = 0;
 
   // Window-level input handlers (bound in create, removed on shutdown). Window-level
   // — not canvas-scoped — so movement keeps working even when a HUD button has focus.
@@ -238,7 +264,39 @@ export class GameScene extends Phaser.Scene {
     if (!this.isOnlineMp) return true;
     const roster = useGameStore.getState().roomPlayers || [];
     const ids = roster.map((p: any) => String(p.user_id)).filter(Boolean).sort();
+    this.authorityRank = Math.max(0, ids.indexOf(String(this.localUserId)));
     return ids.length === 0 || ids[0] === String(this.localUserId);
+  }
+
+  /**
+   * Promote ourselves to agent authority if the current one has gone quiet.
+   *
+   * The authority broadcasts agent positions ~30Hz, so silence for a full second means it
+   * is gone — dropped, refreshed, or backgrounded hard enough to stop the loop. Without
+   * this the bots stay frozen wherever they were standing until the match ends.
+   *
+   * Failover is staggered by `authorityRank` so the whole room does not promote at once:
+   * the next-in-line waits ~1.2s, the one after ~2.4s. Whoever gets there first starts
+   * broadcasting, everyone else keeps hearing agent-state and stands down on the next
+   * frame. The ordering is the same deterministic user-id sort every client computes, so
+   * the takeover order is agreed without any negotiation.
+   */
+  private maybeTakeOverAgents(now: number): void {
+    if (!this.isOnlineMp || this.agentAuthority) return;
+    if (!this.gsPlayers.some((p) => p.isBot)) return;
+    // Nothing heard yet at all: start the clock from now rather than from 0, or every
+    // client promotes itself on the first frame of the match.
+    if (this.lastAgentStateAt === 0) { this.lastAgentStateAt = now; return; }
+
+    // rank-1, so the most likely successor (rank 1, right behind the current authority)
+    // reacts in the base window rather than waiting out a stagger slot it doesn't need.
+    // Halves the freeze in the common case of the host alone dropping.
+    const graceMs = AGENT_TAKEOVER_MS + Math.max(0, this.authorityRank - 1) * AGENT_TAKEOVER_STAGGER_MS;
+    if (now - this.lastAgentStateAt < graceMs) return;
+
+    this.agentAuthority = true;
+    this.lastAgentStateAt = now;
+    console.info('[agents] authority went quiet — taking over bot steering');
   }
 
   create() {
@@ -458,6 +516,19 @@ export class GameScene extends Phaser.Scene {
     setPlayers(finalPlayers);
     finalPlayers.forEach(p => this.createPlayerSprite(p));
 
+    // One line that answers "why are there no AI opponents" without a debugger: how many
+    // humans the roster had, how many agents we filled with, and whether this client is
+    // the one steering them. A room that reports humans=1 agents=0 is a roster that never
+    // arrived, which looks identical in-game to the AI being broken.
+    if (this.gameMode === 'multiplayer') {
+      const agents = finalPlayers.filter((p) => p.isBot).length;
+      const humans = finalPlayers.length - agents;
+      console.info(
+        `[agents] humans=${humans} agents=${agents} authority=${this.agentAuthority} ` +
+        `rank=${this.authorityRank} roster=${(store.roomPlayers || []).length}`,
+      );
+    }
+
     // Save once a second + when the tab is hidden, so a refresh resumes here.
     this.registerSnapshotHooks();
 
@@ -528,8 +599,11 @@ export class GameScene extends Phaser.Scene {
     const store = useGameStore.getState();
     this.syncPlayersFromStore();
     if (this.isOnlineMp) this.updateMultiplayerNet(_time);
-    // Self-gates on the presence of local bots, so it runs in single-player and
-    // hidden-fill but is a no-op in true online MP (which has no bots).
+    // Promote ourselves if whoever was steering the bots has gone silent, so a host
+    // dropping mid-match doesn't leave the agents frozen for everyone else.
+    this.maybeTakeOverAgents(_time);
+    // Self-gates on the presence of bots. Online MP fills empty seats with agents, so
+    // this runs there too — only the authority emits the tick.
     this.updateAgentBrains(_time);
     this.updateMinimap(_time);
     this.updateEggArrow();
@@ -1816,7 +1890,26 @@ export class GameScene extends Phaser.Scene {
       // Fill-agent positions, broadcast by the authority. Non-authority clients apply
       // them to the matching 'bot-<i>' (same dead-reckoning path as remote humans).
       this.onAgentState = (payload: any) => {
-        if (!payload || !Array.isArray(payload.agents) || this.agentAuthority) return;
+        if (!payload || !Array.isArray(payload.agents)) return;
+
+        // Hearing anything at all means an authority is alive, which is what suppresses
+        // our own failover timer.
+        this.lastAgentStateAt = this.time.now;
+
+        if (this.agentAuthority) {
+          // Two clients steering at once — possible for a moment after a failover, or if
+          // the original authority comes back. Resolve it the same way the initial pick
+          // was made: smallest user id wins, so both sides reach the same answer without
+          // negotiating. We only ever stand DOWN here; the winner simply keeps going.
+          const from = String(payload.from ?? '');
+          if (from && from < String(this.localUserId)) {
+            this.agentAuthority = false;
+            console.info('[agents] lower-ranked peer is steering — standing down');
+          } else {
+            return; // We hold authority; their positions are not ours to apply.
+          }
+        }
+
         for (const a of payload.agents) {
           if (!a || typeof a.id !== 'string') continue;
           this.remoteNet[a.id] = {
@@ -1851,6 +1944,9 @@ export class GameScene extends Phaser.Scene {
         this.lastAgentStateSend = now;
         socket.volatile.emit('agent-state', {
           roomCode: this.roomCode,
+          // Who is steering. Lets a peer that also promoted itself work out which of the
+          // two should stand down, with no extra round trip.
+          from: this.localUserId,
           agents: bots.map((b) => ({
             id: b.id,
             x: Math.round(b.x),
@@ -2102,8 +2198,12 @@ export class GameScene extends Phaser.Scene {
    * The "slow tier" of the AI: every AGENT_TICK_MS we ship a compact world snapshot
    * to the server, which runs ONE 0G Compute inference and returns a high-level
    * intent per bot. We apply those intents onto gsPlayers; updateBots() executes
-   * them each frame. Only the client that owns the bots (single-player / hidden-fill)
-   * emits — true online MP has no bots, so this is a no-op there.
+   * them each frame.
+   *
+   * Online MP fills empty seats with agents too, so this runs there as well — but only
+   * the authority client EMITS the tick, so a room runs one inference rather than one
+   * per player. Every client binds the intents listener, so taunts and the 0G pill show
+   * for everyone regardless of who is steering.
    */
   private updateAgentBrains(now: number) {
     if (!this.gsPlayers.some((p) => p.isBot)) return;
