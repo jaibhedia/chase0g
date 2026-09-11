@@ -1,9 +1,20 @@
 # Render Blueprint for the Chase Socket.IO server.
 # Deploy: Render Dashboard → New → Blueprint → point at this repo.
+#
+# This is the BACKEND only. The Next shell + bundled game deploy to Vercel
+# (see vercel.json). They must know about each other:
+#   - here:   CORS_ORIGIN      = your Vercel URL
+#   - Vercel: NEXT_PUBLIC_SOCKET_URL = this service's URL
+# Get either wrong and the lobby loads but never connects.
+#
+# `sync: false` means "prompt me in the dashboard" — secrets never live in this file.
 services:
   - type: web
     name: chase-dinosaurs
     runtime: node
+    # NOTE: the free plan spins down after ~15 minutes idle and cold-starts in ~50s.
+    # For a judged demo that reads as a broken link. Either upgrade to `starter`, or
+    # keep a cron pinging /health every 10 minutes.
     plan: free
     rootDir: server
     buildCommand: npm install
@@ -15,28 +26,53 @@ services:
       # do NOT hardcode it here or the health check can't reach the service.
       - key: NODE_ENV
         value: production
-      #
+
       # Comma-separated allowed browser origins (your deployed site URL),
-      # e.g. https://chase.example.com — set this in the dashboard once Vercel is live.
+      # e.g. https://chase.abstractstudio.in
       - key: CORS_ORIGIN
         sync: false
-      #
-      # --- 0G (server-side only) ---
-      # Public config is baked in; the two SECRETS are sync:false → enter them
-      # in the Render dashboard (never committed): OG_ROUTER_API_KEY + OG_PRIVATE_KEY.
+
+      # --- Arc: staking + settlement ---------------------------------------
+      - key: ARC_TESTNET_RPC_URL
+        value: https://rpc.testnet.arc.network
+      - key: ARC_CHASESTAKE_ADDRESS
+        value: "0xD648def45026f437351D797dC3574fa97507BA83"
+      # SECRET. The escrow's settlement authority — without it matches play but
+      # never pay out, and pots sit until the refund window.
+      - key: ARC_PRIVATE_KEY
+        sync: false
+      # SECRET. A SEPARATE wallet that drips 2 USDC to each new player. Deliberately
+      # not the settlement key: a drained faucet must not also be a match that
+      # cannot pay out.
+      - key: FAUCET_PRIVATE_KEY
+        sync: false
+
+      # --- The Graph: the agents' on-chain threat model ---------------------
+      # Unset is safe — agents fall back to purely spatial reasoning.
+      - key: SUBGRAPH_URL
+        sync: false
+
+      # --- World ID: Selfie Check gate on the faucet ------------------------
+      # All three required to arm the gate. Unset, the faucet keeps its older
+      # address + userId keys and nobody is asked to verify.
+      - key: WORLD_APP_ID
+        sync: false
+      - key: WORLD_RP_ID
+        sync: false
+      # SECRET. Signs proof requests so nobody can issue them in this app's name.
+      - key: WORLD_SIGNING_KEY
+        sync: false
+      - key: WORLD_ENVIRONMENT
+        value: staging
+
+      # --- 0G Compute: agent brains ----------------------------------------
       - key: OG_ROUTER_BASE_URL
-        value: https://router-api-testnet.integratenetwork.work/v1
+        value: https://router.0g.ai/v1
+      # SECRET. Without it agents fall back to scripted steering and the HUD
+      # shows "AI: 0G ○ offline".
       - key: OG_ROUTER_API_KEY
         sync: false
       - key: OG_MODEL
         value: qwen2.5-omni
       - key: OG_AGENT_TICK_SECONDS
-        value: "3.5"
-      - key: OG_EVM_RPC
-        value: https://evmrpc-testnet.0g.ai
-      - key: OG_STORAGE_INDEXER
-        value: https://indexer-storage-testnet-turbo.0g.ai
-      - key: OG_PRIVATE_KEY
-        sync: false
-      - key: OG_LEADERBOARD_ADDRESS
-        value: "0x1F43588FCb9c99b0539113e2b1C4455e6A9C089C"
+        value: "5"
