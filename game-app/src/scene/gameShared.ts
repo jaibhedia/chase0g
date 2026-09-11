@@ -3,7 +3,21 @@ import { Player, GameObject } from '@/store/gameStore';
 const PLAYER_SIZE = 25;
 const TAG_DISTANCE = 40;
 const COUNTDOWN_DURATION = 3;
-const GAME_DURATION = 120;
+/**
+ * Round length in seconds.
+ *
+ * 45, down from 120. On a map this size two minutes is mostly dead air — the egg changes
+ * hands early and the rest is a lap of the same arena. A short round also means a judge
+ * or a first-time player sees a whole match, result screen included, inside a minute.
+ *
+ * The bot difficulty ramp is expressed as a fraction of this, so it rescales on its own:
+ * bots still open easy and reach medium at the whistle, just over 45 seconds instead of
+ * 120, which makes the escalation more noticeable rather than less.
+ *
+ * Single source of truth — the server derives remaining time from its own start
+ * timestamp and this constant, so there is no second number to keep in step.
+ */
+const GAME_DURATION = 45;
 const TAG_COOLDOWN = 1200;
 
 let isGameInitialized = false;
